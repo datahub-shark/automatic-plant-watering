@@ -1,6 +1,6 @@
 # Backend tưới cà chua ba hàng
 
-> Bản Sites hiện tại vẫn hoạt động riêng. Source Worker cho D1 trong tài khoản Cloudflare của chủ dự án nằm ở [`cloudflare-worker/README.md`](cloudflare-worker/README.md); chưa triển khai lên Cloudflare khi chưa đăng nhập Wrangler.
+> Bản Sites hiện tại vẫn hoạt động riêng. Worker cho D1 trong tài khoản Cloudflare của chủ dự án đã được triển khai; xem [`cloudflare-worker/README.md`](cloudflare-worker/README.md). Các việc còn lại được theo dõi trong [`CONG_VIEC_CON_LAI.md`](CONG_VIEC_CON_LAI.md).
 
 Webapp và backend HTTPS trên Sites/Cloudflare Worker, dữ liệu lưu trong D1. Chưa phụ thuộc vào bo STM32 hoặc modem A7670C; có thể kiểm tra hợp đồng API và bố cục bằng dữ liệu mẫu trước khi đấu phần cứng. Site mặc định riêng tư.
 
