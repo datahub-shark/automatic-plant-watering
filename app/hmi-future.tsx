@@ -46,8 +46,8 @@ export default function HmiFuture() {
             Hệ thống 2 bơm định lượng châm dung dịch dinh dưỡng A và B trực tiếp vào ống PE16. Cảm biến EC (độ dẫn điện) và pH kiểm soát chính xác nồng độ phân bón cho từng thời kỳ nuôi trái cà chua.
           </p>
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-            <span>Cổng kết nối dự phòng: <strong>I2C / RS485</strong></span>
-            <span className="text-slate-400">Trạng thái: Đã thiết kế mạch</span>
+            <span>Cổng kết nối dự kiến: <strong>I2C / RS485</strong></span>
+            <span className="text-slate-400">Trạng thái: Dự kiến giai đoạn mở rộng</span>
           </div>
         </div>
 
@@ -66,15 +66,15 @@ export default function HmiFuture() {
               </div>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500">
-              Giai đoạn 2
+              Giai đoạn sau
             </span>
           </div>
           <p className="text-xs text-slate-600 mb-4 leading-relaxed">
             Camera độ phân giải cao chụp tán lá định kỳ 30 phút/lần. Mô hình AI phân tích dấu hiệu héo rũ, đốm lá hoặc rệp sáp, tự động cảnh báo công nhân đến kiểm tra trước khi bệnh lây lan rộng.
           </p>
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-            <span>Giao thức: <strong>RTSP Video Stream</strong></span>
-            <span className="text-slate-400">Trạng thái: Khung AI sẵn sàng</span>
+            <span>Giao thức dự kiến: <strong>RTSP Video Stream</strong></span>
+            <span className="text-slate-400">Trạng thái: Ý tưởng nghiên cứu tiếp theo</span>
           </div>
         </div>
 
@@ -100,8 +100,8 @@ export default function HmiFuture() {
             Module relay và mạch điều khiển hỗ trợ mở rộng thêm Van #4 và Van #5. Dự kiến dùng để khảo nghiệm phương pháp tưới phun sương làm mát nhà màng và tưới giá thể xơ dừa cao cấp.
           </p>
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-            <span>Chân I/O điều khiển: <strong>GPIO Relay 5-8</strong></span>
-            <span className="text-slate-400">Trạng thái: Dự phòng trên PCB</span>
+            <span>Chân I/O điều khiển: <strong>Relay mở rộng</strong></span>
+            <span className="text-slate-400">Trạng thái: Khả năng mở rộng</span>
           </div>
         </div>
 
@@ -120,7 +120,7 @@ export default function HmiFuture() {
               </div>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500">
-              Giai đoạn 3
+              Giai đoạn sau
             </span>
           </div>
           <p className="text-xs text-slate-600 mb-4 leading-relaxed">
@@ -128,7 +128,7 @@ export default function HmiFuture() {
           </p>
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 flex items-center justify-between">
             <span>Giao tiếp: <strong>Cloudflare Worker Webhook</strong></span>
-            <span className="text-slate-400">Trạng thái: Lập trình API</span>
+            <span className="text-slate-400">Trạng thái: Định hướng tích hợp</span>
           </div>
         </div>
       </div>

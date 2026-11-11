@@ -8,6 +8,8 @@ import {
   AlertTriangle,
   BookOpen,
   CheckCircle2,
+  Clock,
+  Download,
   Droplets,
   Eye,
   EyeOff,
@@ -25,6 +27,7 @@ import {
   Sparkles,
   Square,
   Thermometer,
+  TrendingDown,
   Unlock,
   User,
   Wind,
@@ -32,7 +35,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import type { Config, Device, EventItem, Row, Sample } from "./hmi-types";
+import type { CommandItem, Config, Device, EventItem, Row, Sample } from "./hmi-types";
 import { ALARM_REGISTRY, defaultConfig } from "./hmi-types";
 import HydraulicPID from "./hmi-hydraulic-pid";
 import HmiAlarms from "./hmi-alarms";
@@ -136,7 +139,10 @@ export default function Dashboard({
   const [devices, setDevices] = useState<Device[]>([]);
   const [latest, setLatest] = useState<Sample | null>(null);
   const [history, setHistory] = useState<Sample[]>([]);
-  const [events, setEvents] = useState<EventItem[]>(initialSimEvents);
+  const [simEvents, setSimEvents] = useState<EventItem[]>(initialSimEvents);
+  const [liveEvents, setLiveEvents] = useState<EventItem[]>([]);
+  const events = mode === "demo" ? simEvents : liveEvents;
+  const [commandQueue, setCommandQueue] = useState<CommandItem[]>([]);
   const [config, setConfig] = useState<Config>(defaultConfig);
   const [version, setVersion] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -245,14 +251,16 @@ export default function Dashboard({
       }
 
       if (adminToken) {
-        const [latRes, hisRes, evtRes] = await Promise.all([
-          request<{ telemetry: Sample | null }>(`admin/latest?device_id=${query}`),
-          request<{ samples: Sample[] }>(`admin/history?device_id=${query}`),
-          request<{ events: EventItem[] }>(`admin/events?device_id=${query}`),
+        const [latRes, hisRes, evtRes, cmdRes] = await Promise.all([
+          request<{ telemetry: Sample | null }>(`admin/latest?device_id=${query}`).catch(() => ({ telemetry: null })),
+          request<{ samples: Sample[] }>(`admin/history?device_id=${query}`).catch(() => ({ samples: [] })),
+          request<{ events: EventItem[] }>(`admin/events?device_id=${query}`).catch(() => ({ events: [] })),
+          request<{ commands: CommandItem[] }>(`admin/commands?device_id=${query}`).catch(() => ({ commands: [] })),
         ]);
         setLatest(latRes.telemetry);
         setHistory(hisRes.samples || []);
-        setEvents(evtRes.events || []);
+        setLiveEvents(evtRes.events || []);
+        setCommandQueue(cmdRes.commands || []);
       }
       setError("");
     } catch (err) {
@@ -269,7 +277,7 @@ export default function Dashboard({
   // Bộ phân giải dữ liệu hiển thị (Thực hoặc Mô phỏng)
   const parsed = useMemo(() => parseSample(latest), [latest]);
   const rows = mode === "demo" ? simRows : parsed?.rows ?? [];
-  const tankOk = mode === "demo" ? simTankOk : latest?.tank_ok === 1;
+  const tankOk = mode === "demo" ? simTankOk : (latest ? latest.tank_ok === 1 : null);
   const pumpOn = mode === "demo" ? simPumpOn : latest?.pump_on === 1;
   const temp = mode === "demo" ? simTemp : latest?.temperature_c ?? null;
   const rh = mode === "demo" ? simRh : latest?.rh_pct ?? null;
@@ -279,6 +287,81 @@ export default function Dashboard({
   const h3 = mode === "demo" ? (simSoil[2] + simSoil[3]) / 2 : parsed?.h3 ?? null;
   const fresh = mode === "live" && !!latest && Date.now() - Date.parse(latest.received_at) < 180000;
   const totalDailyL = rows.reduce((acc, r) => acc + (r.daily_l || 0), 0);
+
+  // Tính toán so sánh nước giữa 3 hàng
+  const row1L = rows.find((r) => r.id === 1)?.daily_l ?? 0;
+  const row2L = rows.find((r) => r.id === 2)?.daily_l ?? 0;
+  const row3L = rows.find((r) => r.id === 3)?.daily_l ?? 0;
+
+  const row2SavingsPct = row1L > 0 ? ((row1L - row2L) / row1L) * 100 : null;
+  const row3SavingsPct = row1L > 0 ? ((row1L - row3L) / row1L) * 100 : null;
+
+  // Xuất tập tin CSV dữ liệu đo đạc có kèm UTF-8 BOM
+  const handleExportCsv = () => {
+    const rowsData: (string | number)[][] = [
+      ["Thời gian", "Thiết bị", "Nước Hàng 1 (L)", "Nước Hàng 2 (L)", "Nước Hàng 3 (L)", "Tổng Nước (L)", "Nhiệt độ (°C)", "Độ ẩm KK (%)", "VPD (kPa)", "Độ ẩm Đất S1 (%)", "Độ ẩm Đất S2 (%)", "Độ ẩm Đất S3 (%)", "Độ ẩm Đất S4 (%)", "Phao Bồn", "Bơm 12V"]
+    ];
+
+    if (mode === "live" && history.length > 0) {
+      history.forEach((s) => {
+        const p = parseSample(s);
+        const soil = p?.soil ?? [null, null, null, null];
+        const rws = p?.rows ?? [];
+        const h1Val = rws.find((r) => r.id === 1)?.daily_l ?? 0;
+        const h2Val = rws.find((r) => r.id === 2)?.daily_l ?? 0;
+        const h3Val = rws.find((r) => r.id === 3)?.daily_l ?? 0;
+        const tot = h1Val + h2Val + h3Val;
+        rowsData.push([
+          new Date(s.recorded_at).toLocaleString("vi-VN"),
+          device,
+          h1Val.toFixed(2),
+          h2Val.toFixed(2),
+          h3Val.toFixed(2),
+          tot.toFixed(2),
+          s.temperature_c != null ? s.temperature_c.toFixed(1) : "",
+          s.rh_pct != null ? s.rh_pct.toFixed(0) : "",
+          s.vpd_kpa != null ? s.vpd_kpa.toFixed(2) : "",
+          soil[0] != null ? soil[0].toFixed(1) : "",
+          soil[1] != null ? soil[1].toFixed(1) : "",
+          soil[2] != null ? soil[2].toFixed(1) : "",
+          soil[3] != null ? soil[3].toFixed(1) : "",
+          s.tank_ok === 1 ? "ĐỦ NƯỚC" : "BỒN CẠN",
+          s.pump_on === 1 ? "BẬT" : "TẮT"
+        ]);
+      });
+    } else {
+      chartPoints.forEach((pt) => {
+        rowsData.push([
+          pt.time,
+          "stm32_01 (demo)",
+          "4.80",
+          "3.20",
+          "5.70",
+          "13.70",
+          "31.2",
+          "68",
+          "1.45",
+          pt.h2 != null ? pt.h2.toFixed(1) : "45.0",
+          pt.h2 != null ? pt.h2.toFixed(1) : "45.0",
+          pt.h3 != null ? pt.h3.toFixed(1) : "50.0",
+          pt.h3 != null ? pt.h3.toFixed(1) : "50.0",
+          "ĐỦ NƯỚC",
+          "TẮT"
+        ]);
+      });
+    }
+
+    const csvContent = "\uFEFF" + rowsData.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `du_lieu_tuoi_ca_chua_${device}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setNotice("Đã xuất tập tin dữ liệu CSV thành công!");
+  };
 
   // Biểu đồ chuỗi thời gian
   const chartPoints =
@@ -313,7 +396,7 @@ export default function Dashboard({
           }
           return next;
         });
-        setEvents((prev) => [
+        setSimEvents((prev) => [
           {
             id: Date.now(),
             recorded_at: new Date().toISOString(),
@@ -323,12 +406,23 @@ export default function Dashboard({
           },
           ...prev,
         ]);
+        setCommandQueue((prev) => [
+          {
+            id: Date.now(),
+            action: "start",
+            row: rowId,
+            status: "acked",
+            created_at: new Date().toISOString(),
+            acked_at: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
         setNotice(`[Mô phỏng] Đã mở van Hàng ${rowId} và bật bơm. Nước đang chảy trên sơ đồ!`);
       } else if (action === "stop" && rowId) {
         setSimRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, valve: false } : r)));
         const remaining = simRows.filter((r) => r.id !== rowId && r.valve);
         if (remaining.length === 0) setSimPumpOn(false);
-        setEvents((prev) => [
+        setSimEvents((prev) => [
           {
             id: Date.now(),
             recorded_at: new Date().toISOString(),
@@ -338,10 +432,37 @@ export default function Dashboard({
           },
           ...prev,
         ]);
+        setCommandQueue((prev) => [
+          {
+            id: Date.now(),
+            action: "stop",
+            row: rowId,
+            status: "acked",
+            created_at: new Date().toISOString(),
+            acked_at: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
         setNotice(`[Mô phỏng] Đã đóng van Hàng ${rowId}.`);
       } else if (action === "estop") {
         setSimRows((prev) => prev.map((r) => ({ ...r, valve: false })));
         setSimPumpOn(false);
+        setSimEvents((prev) => [
+          {
+            id: Date.now(),
+            recorded_at: new Date().toISOString(),
+            row: 0,
+            type: "manual_stop",
+            liters: null,
+          },
+          ...prev,
+        ]);
+        setCommandQueue((prev) => [
+          { id: Date.now(), action: "stop", row: 1, status: "acked", created_at: new Date().toISOString(), acked_at: new Date().toISOString() },
+          { id: Date.now() + 1, action: "stop", row: 2, status: "acked", created_at: new Date().toISOString(), acked_at: new Date().toISOString() },
+          { id: Date.now() + 2, action: "stop", row: 3, status: "acked", created_at: new Date().toISOString(), acked_at: new Date().toISOString() },
+          ...prev,
+        ]);
         setNotice("[Mô phỏng] ĐÃ KÍCH HOẠT DỪNG KHẨN CẤP: Toàn bộ van và bơm đã ngắt!");
       }
       return;
@@ -363,14 +484,14 @@ export default function Dashboard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "stop", row: r }),
         })));
-        setNotice("ĐÃ PHÁT LỆNH DỪNG KHẨN CẤP CHO TOÀN BỘ 3 HÀNG!");
+        setNotice("ĐÃ PHÁT LỆNH DỪNG KHẨN CẤP QUA 4G CHO TOÀN BỘ 3 HÀNG! Kiểm tra hàng đợi lệnh bên dưới.");
       } else if (rowId) {
-        await request(`admin/commands?device_id=${query}`, {
+        const cmd = await request<{ id: number; status: string }>(`admin/commands?device_id=${query}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action, row: rowId }),
         });
-        setNotice(`Đã chuyển lệnh ${action === "start" ? "TƯỚI" : "DỪNG"} cho Hàng ${rowId}. Đang chờ STM32 ACK...`);
+        setNotice(`Đã chuyển lệnh ${action === "start" ? "TƯỚI" : "DỪNG"} cho Hàng ${rowId} (Lệnh #${cmd.id}). Đang chờ STM32 ACK...`);
       }
       setTimeout(refresh, 1500);
     } catch (err) {
@@ -381,8 +502,12 @@ export default function Dashboard({
   };
 
   const promptStartRow = (rowId: number) => {
-    if (!tankOk) {
-      alert("CẢNH BÁO AN TOÀN: Bồn nước đang cạn! Không thể bật van hay máy bơm để bảo vệ thiết bị.");
+    if (tankOk === false) {
+      alert("CẢNH BÁO AN TOÀN: Bồn nước đang cạn (phao báo chìm)! Không thể bật van hay máy bơm để bảo vệ thiết bị.");
+      return;
+    }
+    if (tankOk === null && mode === "live") {
+      alert("THÔNG BÁO: Đang chờ bản tin đầu tiên từ bộ điều khiển STM32. Vui lòng chờ thiết bị gửi dữ liệu trước khi phát lệnh tưới.");
       return;
     }
     setConfirmModal({
@@ -390,7 +515,7 @@ export default function Dashboard({
       action: "start",
       rowId,
       title: `Xác nhận Kích hoạt Tưới Hàng ${rowId}`,
-      details: `Hệ thống sẽ mở van Hàng ${rowId} và kích hoạt bơm 12V. Nước sẽ cấp cho 4 chậu cà chua cho đến khi đủ 2.0 Lít hoặc đạt ngưỡng ẩm tối ưu.`,
+      details: `Hệ thống sẽ mở van Hàng ${rowId} và kích hoạt bơm 12V. Nước sẽ cấp cho 4 chậu cà chua cho đến khi đủ ${config.targetL[rowId - 1]} Lít hoặc đạt ngưỡng ẩm tối ưu.`,
     });
   };
 
@@ -408,8 +533,8 @@ export default function Dashboard({
     setConfirmModal({
       open: true,
       action: "estop",
-      title: "🚨 DỪNG KHẨN CẤP TOÀN BỘ HỆ THỐNG (E-STOP)",
-      details: "TẤT CẢ van điện từ 1, 2, 3 và máy bơm chính sẽ bị ngắt điện ngay lập tức. Sử dụng khi có sự cố vỡ đường ống hoặc nguy hiểm điện.",
+      title: "🚨 DỪNG KHẨN CẤP QUA MẠNG 4G (E-STOP)",
+      details: "Hệ thống sẽ phát ngay lệnh ngắt đồng thời cả 3 van điện từ và ngắt máy bơm chính qua Cloudflare D1.\n\n⚠️ LƯU Ý AN TOÀN QUAN TRỌNG: Đây là lệnh dừng phần mềm từ xa qua 4G. Nếu phát hiện sự cố nguy hiểm đến tính mạng (rò điện 220V, chập cháy hoặc vỡ đường ống chính áp lực cao tại chỗ), công nhân PHẢI gạt ngay Aptomat nguồn điện tổng tại tủ điều khiển!",
     });
   };
 
@@ -784,21 +909,43 @@ export default function Dashboard({
             <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div
                 className={`p-4 rounded-2xl border transition-all ${
-                  tankOk ? "bg-white border-slate-200/90 shadow-sm" : "bg-red-50 border-red-300 shadow-md ring-2 ring-red-400"
+                  tankOk === null
+                    ? "bg-white border-slate-200/90 shadow-sm"
+                    : tankOk
+                    ? "bg-white border-slate-200/90 shadow-sm"
+                    : "bg-red-50 border-red-300 shadow-md ring-2 ring-red-400"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bồn Nước 100L</span>
-                  <Droplets className={`w-4 h-4 ${tankOk ? "text-sky-500" : "text-red-600 animate-bounce"}`} />
+                  <Droplets
+                    className={`w-4 h-4 ${
+                      tankOk === null
+                        ? "text-slate-400"
+                        : tankOk
+                        ? "text-sky-500"
+                        : "text-red-600 animate-bounce"
+                    }`}
+                  />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className={`text-2xl font-black tracking-tight ${tankOk ? "text-slate-800" : "text-red-700"}`}>
-                    {tankOk ? "ĐỦ NƯỚC" : "BỒN CẠN!"}
+                  <span
+                    className={`text-2xl font-black tracking-tight ${
+                      tankOk === null ? "text-slate-500" : tankOk ? "text-slate-800" : "text-red-700"
+                    }`}
+                  >
+                    {tankOk === null ? "CHỜ ĐO" : tankOk ? "ĐỦ NƯỚC" : "BỒN CẠN!"}
                   </span>
                 </div>
                 <div className="mt-2 text-[11px] font-medium text-slate-500 flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${tankOk ? "bg-sky-500" : "bg-red-500"}`}></span>
-                  Phao an toàn: {tankOk ? "Nổi (Bình thường)" : "Chìm (Khóa bơm)"}
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      tankOk === null ? "bg-slate-300" : tankOk ? "bg-sky-500" : "bg-red-500"
+                    }`}
+                  ></span>
+                  {tankOk === null
+                    ? "Chờ bản tin thiết bị"
+                    : `Phao an toàn: ${tankOk ? "Nổi (Bình thường)" : "Chìm (Khóa bơm)"}`}
                 </div>
               </div>
 
@@ -910,7 +1057,7 @@ export default function Dashboard({
 
                 <div className="mt-5 grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
                   <button
-                    disabled={!tankOk || busy || rows.find((r) => r.id === 1)?.valve}
+                    disabled={tankOk === false || (tankOk === null && mode === "live") || busy || rows.find((r) => r.id === 1)?.valve}
                     onClick={() => promptStartRow(1)}
                     className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40"
                   >
@@ -986,7 +1133,7 @@ export default function Dashboard({
 
                 <div className="mt-5 grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
                   <button
-                    disabled={!tankOk || busy || rows.find((r) => r.id === 2)?.valve}
+                    disabled={tankOk === false || (tankOk === null && mode === "live") || busy || rows.find((r) => r.id === 2)?.valve}
                     onClick={() => promptStartRow(2)}
                     className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40"
                   >
@@ -1066,7 +1213,7 @@ export default function Dashboard({
 
                 <div className="mt-5 grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
                   <button
-                    disabled={!tankOk || busy || rows.find((r) => r.id === 3)?.valve}
+                    disabled={tankOk === false || (tankOk === null && mode === "live") || busy || rows.find((r) => r.id === 3)?.valve}
                     onClick={() => promptStartRow(3)}
                     className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40"
                   >
@@ -1083,7 +1230,108 @@ export default function Dashboard({
               </div>
             </section>
 
-            {/* BIỂU ĐỒ DIỄN BIẾN ĐỘ ẨM THEO THỜI GIAN */}
+            {/* 4. SO SÁNH HIỆU QUẢ SỬ DỤNG NƯỚC GIỮA 3 PHƯƠNG PHÁP & XUẤT CSV */}
+            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                      📊
+                    </span>
+                    <h3 className="text-base font-bold text-slate-800">
+                      So Sánh Hiệu Quả Sử Dụng Nước Giữa 3 Phương Pháp Tưới
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Số liệu thực nghiệm đề tài nghiên cứu: Đánh giá thể tích nước cấp (Lít) và mức độ tiết kiệm nước so với Hàng 1 (Hẹn giờ cố định).
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleExportCsv}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
+                  title="Xuất bảng số liệu đo đạc chi tiết dạng CSV có định dạng UTF-8"
+                >
+                  <Download className="w-4 h-4 text-emerald-400" />
+                  <span>Xuất Dữ Liệu Đo Đạc (CSV)</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+                {/* Hàng 1: Hẹn giờ cố định */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="font-bold text-slate-700">Hàng 1 — Hẹn Giờ Cố Định</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700 uppercase">Đối chứng</span>
+                    </div>
+                    <div className="text-2xl font-black text-slate-800 mb-1">
+                      {row1L.toFixed(2)} <span className="text-xs font-semibold text-slate-500">Lít/ngày</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Tưới theo khung giờ cố định 06:00 &amp; 17:00. Tiêu thụ làm mốc đối chứng (100%).
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 text-[11px] font-semibold text-slate-500">
+                    Mức tiết kiệm: <span className="text-slate-700 font-bold">Mốc chuẩn (0%)</span>
+                  </div>
+                </div>
+
+                {/* Hàng 2: Theo độ ẩm đất */}
+                <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-200 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="font-bold text-emerald-900">Hàng 2 — Theo Độ Ẩm Đất</span>
+                      {row2SavingsPct != null && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${row2SavingsPct >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                          {row2SavingsPct >= 0 ? `Tiết kiệm ${row2SavingsPct.toFixed(1)}%` : `Dùng thêm ${Math.abs(row2SavingsPct).toFixed(1)}%`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-2xl font-black text-emerald-900 mb-1">
+                      {row2L.toFixed(2)} <span className="text-xs font-semibold text-slate-500">Lít/ngày</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800 leading-relaxed">
+                      Chỉ tưới khi ẩm độ đất H &lt; {config.low[0]}%. Tự động ngắt khi đất đủ ẩm, tránh thất thoát nước do thừa ẩm.
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-2.5 border-t border-emerald-200/60 text-[11px] font-semibold text-emerald-800 flex items-center justify-between">
+                    <span>So với Hàng 1:</span>
+                    <strong className="text-emerald-700 font-bold">
+                      {row2SavingsPct != null ? (row2SavingsPct >= 0 ? `Giảm ${(row1L - row2L).toFixed(2)} Lít (${row2SavingsPct.toFixed(1)}%)` : `Tăng ${(row2L - row1L).toFixed(2)} Lít`) : "Chưa đủ số liệu"}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Hàng 3: Đa cảm biến + VPD */}
+                <div className="p-4 rounded-xl bg-teal-50/50 border border-teal-200 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="font-bold text-teal-900">Hàng 3 — Thích Ứng Vi Khí Hậu VPD</span>
+                      {row3SavingsPct != null && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${row3SavingsPct >= 0 ? "bg-teal-100 text-teal-800" : "bg-amber-100 text-amber-800"}`}>
+                          {row3SavingsPct >= 0 ? `Tiết kiệm ${row3SavingsPct.toFixed(1)}%` : `Dùng thêm ${Math.abs(row3SavingsPct).toFixed(1)}%`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-2xl font-black text-teal-900 mb-1">
+                      {row3L.toFixed(2)} <span className="text-xs font-semibold text-slate-500">Lít/ngày</span>
+                    </div>
+                    <p className="text-[11px] text-teal-800 leading-relaxed">
+                      Điều tiết lượng nước theo áp lực bốc thoát hơi VPD: ngày râm mát tiết kiệm nước, ngày nắng gắt tăng bù nước bảo vệ cây.
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-2.5 border-t border-teal-200/60 text-[11px] font-semibold text-teal-800 flex items-center justify-between">
+                    <span>So với Hàng 1:</span>
+                    <strong className="text-teal-700 font-bold">
+                      {row3SavingsPct != null ? (row3SavingsPct >= 0 ? `Giảm ${(row1L - row3L).toFixed(2)} Lít (${row3SavingsPct.toFixed(1)}%)` : `Tăng ${(row3L - row1L).toFixed(2)} Lít`) : "Chưa đủ số liệu"}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* 5. BIỂU ĐỒ DIỄN BIẾN ĐỘ ẨM THEO THỜI GIAN */}
             <section className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                 <div>
@@ -1107,6 +1355,125 @@ export default function Dashboard({
                 <LineChart points={chartPoints} />
               ) : (
                 <div className="py-16 text-center text-slate-400 text-xs">Chưa có đủ mẫu đo để vẽ biểu đồ</div>
+              )}
+            </section>
+
+            {/* 6. HÀNG ĐỢI LỆNH ĐIỀU KHIỂN & TRẠNG THÁI THIẾT BỊ (COMMAND QUEUE) */}
+            <section className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-lg bg-sky-100 text-sky-800 flex items-center justify-center font-bold text-xs">
+                    <Clock className="w-4 h-4 text-sky-700" />
+                  </span>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">
+                      Hàng Đợi Lệnh Điều Khiển (Command Queue)
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Theo dõi quá trình thiết bị nhận &amp; phản hồi lệnh (TTL 10 phút tự hủy để chống kẹt lệnh)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
+                    {mode === "demo" ? "Chế độ Huấn luyện mô phỏng" : "Đồng bộ từ Cloudflare D1"}
+                  </span>
+                  <button
+                    onClick={refresh}
+                    disabled={busy}
+                    title="Làm mới hàng đợi"
+                    className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+              </div>
+
+              {commandQueue.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs font-medium">
+                  Hiện không có lệnh nào trong hàng đợi. Tất cả lệnh đã được bộ điều khiển STM32 thực thi xong.
+                </div>
+              ) : (
+                <div className="overflow-x-auto mt-4">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-500 uppercase text-[10px] tracking-wider font-bold">
+                        <th className="py-2.5 px-3">Mã lệnh</th>
+                        <th className="py-2.5 px-3">Thao tác</th>
+                        <th className="py-2.5 px-3">Hàng</th>
+                        <th className="py-2.5 px-3">Thời gian gửi</th>
+                        <th className="py-2.5 px-3">Trạng thái</th>
+                        <th className="py-2.5 px-3">Xác nhận lúc</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {commandQueue.slice(0, 8).map((cmd) => {
+                        const isPending = cmd.status === "pending";
+                        const isAcked = cmd.status === "acked";
+                        const isExpired = cmd.status === "expired";
+                        return (
+                          <tr key={cmd.id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-700">#{cmd.id}</td>
+                            <td className="py-2.5 px-3 font-semibold text-slate-800">
+                              {cmd.action === "start" ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                                  <Play className="w-3 h-3 fill-current" /> Mở tưới
+                                </span>
+                              ) : cmd.action === "stop" ? (
+                                <span className="inline-flex items-center gap-1 text-slate-700 font-bold">
+                                  <Square className="w-3 h-3 fill-current" /> Đóng van
+                                </span>
+                              ) : cmd.action === "clear_fault" ? (
+                                <span className="inline-flex items-center gap-1 text-sky-700 font-bold">
+                                  <RefreshCw className="w-3 h-3" /> Xóa lỗi
+                                </span>
+                              ) : (
+                                cmd.action
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-slate-700">
+                              {cmd.row === 0 ? "Toàn bộ 3 hàng" : `Hàng ${cmd.row}`}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500">
+                              {new Date(cmd.created_at).toLocaleTimeString("vi-VN", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                              })}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {isPending && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 animate-pulse">
+                                  <Clock className="w-3 h-3" /> Chờ STM32 nhận
+                                </span>
+                              )}
+                              {isAcked && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                  <CheckCircle2 className="w-3 h-3" /> Đã thực thi (ACK)
+                                </span>
+                              )}
+                              {isExpired && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
+                                  <AlertCircle className="w-3 h-3" /> Hết hạn (Quá 10 phút)
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500">
+                              {cmd.acked_at
+                                ? new Date(cmd.acked_at).toLocaleTimeString("vi-VN", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    second: "2-digit",
+                                  })
+                                : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </section>
           </div>
@@ -1190,11 +1557,15 @@ export default function Dashboard({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Cấu hình Hàng 1 */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
-                <h4 className="font-bold text-sm text-slate-800">Hàng 1 — Lịch Hẹn Giờ</h4>
-                <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-sm text-slate-800">Hàng 1 — Lịch Hẹn Giờ</h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800">H1</span>
+                </div>
+                <div className="space-y-2.5 text-xs">
                   <label className="block">
-                    <span className="text-slate-500 block mb-1">Giờ tưới lần 1:</span>
+                    <span className="text-slate-500 block mb-1">Giờ tưới lần 1 (Sáng):</span>
                     <input
                       type="time"
                       value={`${String(config.scheduleHour[0]).padStart(2, "0")}:${String(config.scheduleMinute[0]).padStart(2, "0")}`}
@@ -1210,7 +1581,7 @@ export default function Dashboard({
                     />
                   </label>
                   <label className="block">
-                    <span className="text-slate-500 block mb-1">Giờ tưới lần 2:</span>
+                    <span className="text-slate-500 block mb-1">Giờ tưới lần 2 (Chiều):</span>
                     <input
                       type="time"
                       value={`${String(config.scheduleHour[1]).padStart(2, "0")}:${String(config.scheduleMinute[1]).padStart(2, "0")}`}
@@ -1226,7 +1597,7 @@ export default function Dashboard({
                     />
                   </label>
                   <label className="block">
-                    <span className="text-slate-500 block mb-1">Thể tích mục tiêu (Lít):</span>
+                    <span className="text-slate-500 block mb-1">Thể tích mục tiêu mỗi lần (Lít):</span>
                     <input
                       type="number"
                       step="0.1"
@@ -1235,41 +1606,60 @@ export default function Dashboard({
                         const val = Number(e.target.value);
                         setConfig((c) => ({ ...c, targetL: [val, c.targetL[1], c.targetL[2]] }));
                       }}
+                      className="w-full p-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-500 block mb-1">Thời gian van mở tối đa (giây):</span>
+                    <input
+                      type="number"
+                      value={config.maxSeconds[0]}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setConfig((c) => ({ ...c, maxSeconds: [val, c.maxSeconds[1], c.maxSeconds[2]] }));
+                      }}
                       className="w-full p-2 rounded-lg border border-slate-300 bg-white"
                     />
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">Ngắt van khẩn cấp nếu cảm biến xung hỏng</span>
                   </label>
                 </div>
               </div>
 
+              {/* Cấu hình Hàng 2 */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
-                <h4 className="font-bold text-sm text-slate-800">Hàng 2 — Ngưỡng Độ Ẩm</h4>
-                <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-sm text-slate-800">Hàng 2 — Theo Độ Ẩm Đất</h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">H2</span>
+                </div>
+                <div className="space-y-2.5 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Ngưỡng bật Low (%):</span>
+                      <input
+                        type="number"
+                        value={config.low[0]}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setConfig((c) => ({ ...c, low: [val, c.low[1]] }));
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Ngưỡng ngắt High (%):</span>
+                      <input
+                        type="number"
+                        value={config.high[0]}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setConfig((c) => ({ ...c, high: [val, c.high[1]] }));
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                  </div>
                   <label className="block">
-                    <span className="text-slate-500 block mb-1">Ngưỡng mở van Low (%):</span>
-                    <input
-                      type="number"
-                      value={config.low[0]}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setConfig((c) => ({ ...c, low: [val, c.low[1]] }));
-                      }}
-                      className="w-full p-2 rounded-lg border border-slate-300 bg-white"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-slate-500 block mb-1">Ngưỡng đóng van High (%):</span>
-                    <input
-                      type="number"
-                      value={config.high[0]}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setConfig((c) => ({ ...c, high: [val, c.high[1]] }));
-                      }}
-                      className="w-full p-2 rounded-lg border border-slate-300 bg-white"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-slate-500 block mb-1">Thể tích tối đa (Lít):</span>
+                    <span className="text-slate-500 block mb-1">Thể tích tưới tối đa (Lít):</span>
                     <input
                       type="number"
                       step="0.1"
@@ -1278,44 +1668,235 @@ export default function Dashboard({
                         const val = Number(e.target.value);
                         setConfig((c) => ({ ...c, targetL: [c.targetL[0], val, c.targetL[2]] }));
                       }}
+                      className="w-full p-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-500 block mb-1">Thời gian van mở tối đa (giây):</span>
+                    <input
+                      type="number"
+                      value={config.maxSeconds[1]}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setConfig((c) => ({ ...c, maxSeconds: [c.maxSeconds[0], val, c.maxSeconds[2]] }));
+                      }}
                       className="w-full p-2 rounded-lg border border-slate-300 bg-white"
                     />
+                  </label>
+                  <label className="block">
+                    <span className="text-slate-500 block mb-1">Thời gian chờ ngấm nước (giây):</span>
+                    <input
+                      type="number"
+                      value={config.soakSeconds[0]}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setConfig((c) => ({ ...c, soakSeconds: [val, c.soakSeconds[1]] }));
+                      }}
+                      className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">Trì hoãn lần tưới tiếp để nước ngấm đều rễ</span>
                   </label>
                 </div>
               </div>
 
+              {/* Cấu hình Hàng 3 */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
-                <h4 className="font-bold text-sm text-slate-800">Hàng 3 — Bù Khí Hậu VPD</h4>
-                <div className="space-y-2 text-xs">
-                  <label className="block">
-                    <span className="text-slate-500 block mb-1">Ngưỡng VPD Nóng (kPa):</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={config.vpdHot}
-                      onChange={(e) => setConfig((c) => ({ ...c, vpdHot: Number(e.target.value) }))}
-                      className="w-full p-2 rounded-lg border border-slate-300 bg-white"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-slate-500 block mb-1">Tăng ngưỡng ẩm (%):</span>
-                    <input
-                      type="number"
-                      value={config.vpdThresholdBoost}
-                      onChange={(e) => setConfig((c) => ({ ...c, vpdThresholdBoost: Number(e.target.value) }))}
-                      className="w-full p-2 rounded-lg border border-slate-300 bg-white"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-slate-500 block mb-1">Tăng lượng nước (tỉ lệ):</span>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={config.vpdVolumeBoost}
-                      onChange={(e) => setConfig((c) => ({ ...c, vpdVolumeBoost: Number(e.target.value) }))}
-                      className="w-full p-2 rounded-lg border border-slate-300 bg-white"
-                    />
-                  </label>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-sm text-slate-800">Hàng 3 — Thích Ứng Vi Khí Hậu VPD</h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-100 text-teal-800">H3</span>
+                </div>
+                <div className="space-y-2.5 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Ngưỡng bật Low (%):</span>
+                      <input
+                        type="number"
+                        value={config.low[1]}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setConfig((c) => ({ ...c, low: [c.low[0], val] }));
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Ngưỡng ngắt High (%):</span>
+                      <input
+                        type="number"
+                        value={config.high[1]}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setConfig((c) => ({ ...c, high: [c.high[0], val] }));
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Thể tích max (Lít):</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={config.targetL[2]}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setConfig((c) => ({ ...c, targetL: [c.targetL[0], c.targetL[1], val] }));
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Ngưỡng VPD Nóng:</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={config.vpdHot}
+                        onChange={(e) => setConfig((c) => ({ ...c, vpdHot: Number(e.target.value) }))}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Tăng ngưỡng ẩm (%):</span>
+                      <input
+                        type="number"
+                        value={config.vpdThresholdBoost}
+                        onChange={(e) => setConfig((c) => ({ ...c, vpdThresholdBoost: Number(e.target.value) }))}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Tăng lượng nước (%):</span>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={config.vpdVolumeBoost}
+                        onChange={(e) => setConfig((c) => ({ ...c, vpdVolumeBoost: Number(e.target.value) }))}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Max van mở (giây):</span>
+                      <input
+                        type="number"
+                        value={config.maxSeconds[2]}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setConfig((c) => ({ ...c, maxSeconds: [c.maxSeconds[0], c.maxSeconds[1], val] }));
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-slate-500 block mb-1">Chờ ngấm (giây):</span>
+                      <input
+                        type="number"
+                        value={config.soakSeconds[1]}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setConfig((c) => ({ ...c, soakSeconds: [c.soakSeconds[0], val] }));
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* BẢNG HIỆU CHUẨN CẢM BIẾN ĐỘ ẨM ĐẤT VÀ PHAO BỒN NƯỚC */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">
+              {/* Hiệu chuẩn 4 cảm biến độ ẩm đất */}
+              <div className="md:col-span-2 p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-sm text-slate-800">Hiệu Chuẩn Cảm Biến Độ Ẩm Đất (ADC 12-bit)</h4>
+                    <p className="text-[11px] text-slate-500">
+                      Điều chỉnh giá trị ADC đo khi cảm biến khô trong không khí và khi nhúng trong nước bão hòa
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-100 text-sky-800">ADC 0 - 4095</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+                  {[
+                    { label: "S1 (H2 - Chậu 1)", idx: 0 },
+                    { label: "S2 (H2 - Chậu 3)", idx: 1 },
+                    { label: "S3 (H3 - Chậu 1)", idx: 2 },
+                    { label: "S4 (H3 - Chậu 3)", idx: 3 },
+                  ].map(({ label, idx }) => (
+                    <div key={idx} className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
+                      <div className="font-bold text-slate-700 text-[11px] truncate">{label}</div>
+                      <label className="block">
+                        <span className="text-[10px] text-slate-500 block">Khô (Air ADC):</span>
+                        <input
+                          type="number"
+                          value={config.soilDry[idx]}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setConfig((c) => {
+                              const next = [...c.soilDry];
+                              next[idx] = val;
+                              return { ...c, soilDry: next };
+                            });
+                          }}
+                          className="w-full p-1.5 rounded border border-slate-300 text-xs font-mono"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[10px] text-slate-500 block">Ướt (Water ADC):</span>
+                        <input
+                          type="number"
+                          value={config.soilWet[idx]}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setConfig((c) => {
+                              const next = [...c.soilWet];
+                              next[idx] = val;
+                              return { ...c, soilWet: next };
+                            });
+                          }}
+                          className="w-full p-1.5 rounded border border-slate-300 text-xs font-mono"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cấu hình phao an toàn bồn nước */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3 flex flex-col justify-between">
+                <div>
+                  <h4 className="font-bold text-sm text-slate-800">Cấu Hình Phao Bồn Nước</h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Thiết lập kiểu tiếp điểm của công tắc phao chống cạn gắn tại thành bồn chứa
+                  </p>
+
+                  <div className="mt-4 space-y-3 text-xs">
+                    <label className="block">
+                      <span className="text-slate-600 font-semibold block mb-1">Mức logic khi cạn nước:</span>
+                      <select
+                        value={config.floatLowLevel ? "low" : "high"}
+                        onChange={(e) => setConfig((c) => ({ ...c, floatLowLevel: e.target.value === "low" }))}
+                        className="w-full p-2 rounded-lg border border-slate-300 bg-white font-medium"
+                      >
+                        <option value="low">Tiếp điểm đóng về GND (Mức LOW khi cạn)</option>
+                        <option value="high">Tiếp điểm ngắt hở mạch (Mức HIGH khi cạn)</option>
+                      </select>
+                    </label>
+
+                    <div className="p-2.5 rounded-lg bg-sky-50 border border-sky-100 text-[11px] text-sky-900 leading-relaxed">
+                      💡 <strong>Khuyên dùng:</strong> Mức LOW khi cạn là chuẩn an toàn công nghiệp, giúp thiết bị phát hiện được cả khi dây phao bị đứt ngầm.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-400 pt-2 border-t border-slate-200/60">
+                  Thông số bảo vệ trực tiếp máy bơm 12V DC.
                 </div>
               </div>
             </div>

@@ -6,7 +6,7 @@ import type { Row } from "./hmi-types";
 
 interface HydraulicPIDProps {
   rows: Row[];
-  tankOk: boolean;
+  tankOk: boolean | null;
   pumpOn: boolean;
   soilMoisture: (number | null)[]; // 4 cảm biến: Hàng 2 (chậu 1,3) và Hàng 3 (chậu 1,3)
   tempC: number | null;
@@ -81,7 +81,9 @@ export default function HydraulicPID({
             <div
               onClick={() => setSelectedElement("tank")}
               className={`col-span-3 cursor-pointer p-3.5 rounded-xl border transition-all ${
-                tankOk
+                tankOk === null
+                  ? "bg-slate-50 border-slate-200 hover:border-slate-300"
+                  : tankOk
                   ? "bg-sky-50/70 border-sky-200 hover:border-sky-400"
                   : "bg-red-50 border-red-300 hover:border-red-400 ring-2 ring-red-400/40"
               }`}
@@ -92,29 +94,45 @@ export default function HydraulicPID({
                 </span>
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    tankOk ? "bg-sky-200 text-sky-800" : "bg-red-200 text-red-800 animate-pulse"
+                    tankOk === null
+                      ? "bg-slate-200 text-slate-700"
+                      : tankOk
+                      ? "bg-sky-200 text-sky-800"
+                      : "bg-red-200 text-red-800 animate-pulse"
                   }`}
                 >
-                  {tankOk ? "Bồn Đầy" : "BỒN CẠN"}
+                  {tankOk === null ? "Chờ kết nối" : tankOk ? "Bồn Đầy" : "BỒN CẠN"}
                 </span>
               </div>
               <div className="flex items-center gap-3">
                 <div
                   className={`w-12 h-14 rounded-lg border-2 flex flex-col justify-end p-1 overflow-hidden transition-all ${
-                    tankOk ? "border-sky-400 bg-white" : "border-red-400 bg-red-100"
+                    tankOk === null
+                      ? "border-slate-300 bg-slate-100"
+                      : tankOk
+                      ? "border-sky-400 bg-white"
+                      : "border-red-400 bg-red-100"
                   }`}
                 >
                   <div
                     className={`w-full rounded transition-all duration-700 ${
-                      tankOk ? "h-4/5 bg-sky-400/80" : "h-1/5 bg-red-400/80"
+                      tankOk === null
+                        ? "h-1/2 bg-slate-300/80"
+                        : tankOk
+                        ? "h-4/5 bg-sky-400/80"
+                        : "h-1/5 bg-red-400/80"
                     }`}
                   ></div>
                 </div>
                 <div>
                   <div className="font-bold text-slate-800 text-sm">Bồn Chứa 100L</div>
-                  <div className="text-xs text-slate-500">Phao mực nước: {tankOk ? "OK" : "Cảnh báo cạn"}</div>
-                  <div className="text-[11px] text-sky-700 font-semibold mt-0.5">
-                    {tankOk ? "Sẵn sàng cấp nước" : "Cần bơm nước ngay!"}
+                  <div className="text-xs text-slate-500">
+                    Phao mực nước: {tankOk === null ? "Chờ dữ liệu" : tankOk ? "Đủ nước (Nổi)" : "Cảnh báo cạn (Chìm)"}
+                  </div>
+                  <div className={`text-[11px] font-semibold mt-0.5 ${
+                    tankOk === null ? "text-slate-500" : tankOk ? "text-sky-700" : "text-red-700 font-bold"
+                  }`}>
+                    {tankOk === null ? "Đang đồng bộ..." : tankOk ? "Sẵn sàng cấp nước" : "Cần bơm nước ngay!"}
                   </div>
                 </div>
               </div>
@@ -160,7 +178,7 @@ export default function HydraulicPID({
                   <div className="font-bold text-slate-800 text-sm">Bơm Màng 12V</div>
                   <div className="text-xs text-slate-500">Tự ngắt khi đủ áp</div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
-                    {pumpOn ? "Áp suất ống: ~2.5 bar" : "Nghỉ"}
+                    {pumpOn ? "Đang đẩy nước vào đường ống" : "Nghỉ"}
                   </div>
                 </div>
               </div>

@@ -6,7 +6,7 @@ import { ALARM_REGISTRY, type EventItem } from "./hmi-types";
 
 interface HmiAlarmsProps {
   events: EventItem[];
-  tankOk: boolean;
+  tankOk: boolean | null;
   onClearFault?: () => void;
   canOperate: boolean;
 }
@@ -14,9 +14,9 @@ interface HmiAlarmsProps {
 export default function HmiAlarms({ events, tankOk, onClearFault, canOperate }: HmiAlarmsProps) {
   const [filter, setFilter] = useState<"all" | "alarms" | "history">("all");
 
-  // Tìm các cảnh báo tích cực hiện tại (ví dụ: bồn cạn, hoặc sự kiện lỗi gần nhất)
+  // Tìm các cảnh báo tích cực hiện tại: chỉ kích hoạt khi cảm biến phao thực sự báo cạn (false)
   const activeAlarms = [];
-  if (!tankOk) {
+  if (tankOk === false) {
     activeAlarms.push(ALARM_REGISTRY.tank_empty);
   }
 

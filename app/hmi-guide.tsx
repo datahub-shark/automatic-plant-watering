@@ -133,30 +133,30 @@ export default function HmiGuide() {
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
             <div className="font-bold text-slate-900 mb-1 flex items-center gap-1.5">
-              <AlertCircle className="w-4 h-4 text-red-600" /> Xử lý sự cố khẩn cấp (E-STOP)
+              <AlertCircle className="w-4 h-4 text-red-600" /> Xử lý sự cố khẩn cấp tại chỗ & từ xa
             </div>
             <p className="leading-relaxed text-slate-600">
-              Khi phát hiện vỡ ống nước, bơm kêu to bất thường, hoặc khói mùi khét:
-              <strong> Nhấn ngay nút [DỪNG KHẨN CẤP] màu đỏ trên HMI</strong> hoặc gạt aptomat trong hộp điện IP65 xuống ngay lập tức, sau đó gọi hotline kỹ thuật.
+              Khi phát hiện vỡ ống nước, chập cháy hoặc bơm kêu to bất thường:
+              <strong> Gạt ngay aptomat trong hộp điện IP65 xuống</strong> để ngắt điện vật lý trực tiếp. Nếu thao tác từ xa qua web, bấm nút <strong>[DỪNG KHẨN CẤP]</strong> để gửi lệnh ngắt van/bơm qua mạng 4G.
             </p>
           </div>
         </div>
       </div>
 
-      {/* 4. Hotline Hỗ trợ kỹ thuật */}
+      {/* 4. Hỗ trợ kỹ thuật */}
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-4 text-xs">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
             <PhoneCall className="w-4 h-4" />
           </div>
           <div>
-            <div className="font-bold text-slate-800">Cần Hỗ trợ Kỹ thuật & Báo hỏng?</div>
-            <div className="text-slate-500">Kỹ sư phụ trách hệ thống IoT & Nhà màng</div>
+            <div className="font-bold text-slate-800">Bộ phận Hỗ trợ Kỹ thuật Đề tài</div>
+            <div className="text-slate-500">Dự án IoT Nông nghiệp Thông minh 3 Hàng Cà Chua</div>
           </div>
         </div>
         <div className="flex items-center gap-4 text-slate-700 font-semibold">
-          <span>Kỹ thuật viên: <strong className="text-slate-900">098x.xxx.xxx</strong></span>
-          <span>Phòng Thí nghiệm IoT: <strong className="text-slate-900">HVNN Việt Nam</strong></span>
+          <span>Đơn vị phụ trách: <strong className="text-slate-900">Học viện Nông nghiệp Việt Nam</strong></span>
+          <span>Hỗ trợ: <strong className="text-slate-900">Kỹ sư phòng Lab IoT</strong></span>
         </div>
       </div>
     </div>

@@ -50,6 +50,15 @@ export type Device = {
   last_seq?: number;
 };
 
+export type CommandItem = {
+  id: number;
+  action: string;
+  row: number;
+  status: "pending" | "acked" | "expired";
+  created_at: string;
+  acked_at: string | null;
+};
+
 export const defaultConfig: Config = {
   soilDry: [3000, 3000, 3000, 3000],
   soilWet: [1200, 1200, 1200, 1200],
@@ -81,7 +90,7 @@ export const ALARM_REGISTRY: Record<string, AlarmInfo> = {
     level: "critical",
     description: "Cảm biến phao báo mực nước trong bồn chứa đã xuống dưới mức an toàn. Hệ thống đã tự động khóa van và tắt bơm để chống cháy bơm.",
     workerGuide: [
-      "1. Đi đến bồn chứa nước 100L và kiểm tra thực tế.",
+      "1. Đi đến bồn chứa nước và kiểm tra mực nước thực tế.",
       "2. Mở van cấp nước nguồn vào bồn hoặc kiểm tra đường nước máy.",
       "3. Khi bồn đầy, kiểm tra phao nổi lên và quay lại HMI kiểm tra trạng thái xanh.",
     ],
@@ -113,7 +122,7 @@ export const ALARM_REGISTRY: Record<string, AlarmInfo> = {
     code: "ALARM_MAX_TIMEOUT",
     title: "HẾT THỜI GIAN TƯỚI TỐI ĐA",
     level: "warning",
-    description: "Thời gian mở van đã vượt quá 900 giây (15 phút) mà chưa đạt đủ thể tích nước yêu cầu. Hệ thống đã tự ngắt để bảo vệ cây khỏi ngập úng.",
+    description: "Van đã mở quá thời gian tối đa đã cài đặt mà chưa đạt đủ thể tích nước yêu cầu. Hệ thống đã tự ngắt để bảo vệ cây khỏi ngập úng.",
     workerGuide: [
       "1. Kiểm tra áp lực nước có quá yếu không khiến lượng nước cấp chậm.",
       "2. Kiểm tra các đầu nhỏ giọt trên hàng có bị tắc vôi/khoáng không.",
@@ -138,7 +147,7 @@ export const ALARM_REGISTRY: Record<string, AlarmInfo> = {
     code: "EVENT_TARGET_REACHED",
     title: "Đạt đủ thể tích nước mục tiêu",
     level: "info",
-    description: "Cảm biến lưu lượng đo đủ số lít nước cài đặt (ví dụ 2.0 L). Đã đóng van an toàn.",
+    description: "Cảm biến lưu lượng đo đủ số lít nước cài đặt. Đã đóng van.",
     workerGuide: ["Đợt tưới kết thúc thành công."],
   },
   soil_high: {
@@ -153,6 +162,20 @@ export const ALARM_REGISTRY: Record<string, AlarmInfo> = {
     title: "Dừng tưới thủ công",
     level: "info",
     description: "Người vận hành đã gửi lệnh dừng van.",
-    workerGuide: ["Van đã đóng an toàn."],
+    workerGuide: ["Van đã đóng."],
+  },
+  fault_cleared: {
+    code: "EVENT_FAULT_CLEARED",
+    title: "Đã xóa lỗi",
+    level: "info",
+    description: "Bộ điều khiển đã xóa cờ lỗi theo lệnh của người vận hành.",
+    workerGuide: ["Theo dõi lần tưới tiếp theo để chắc chắn lỗi không lặp lại."],
+  },
+  leak_shutdown: {
+    code: "EVENT_LEAK_SHUTDOWN",
+    title: "Dừng toàn bộ do nghi rò van",
+    level: "warning",
+    description: "Bộ điều khiển dừng tất cả các hàng sau khi phát hiện nước chảy khi van đóng.",
+    workerGuide: ["Xem hướng dẫn mục \"Nghi vấn rò rỉ van\"."],
   },
 };

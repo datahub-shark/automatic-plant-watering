@@ -18,6 +18,8 @@ const num = (v: unknown, min: number, max: number) =>
   typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
 const bool = (v: unknown) => typeof v === "boolean";
 const rowOk = (v: unknown) => Number.isInteger(v) && Number(v) >= 1 && Number(v) <= 3;
+// Lệnh điều khiển chỉ có hiệu lực trong 10 phút kể từ khi tạo.
+const COMMAND_TTL_MS = 10 * 60 * 1000;
 
 async function bodyOf(req: Request): Promise<Record<string, unknown> | null> {
   if ((Number(req.headers.get("content-length")) || 0) > 8192) return null;
@@ -160,7 +162,12 @@ export async function route(req: Request, env: WorkerEnv) {
     return env.DB;
   };
 
-  const sessionUser = await getSessionUser(req, db());
+  // Chỉ tra bảng sessions khi header không khớp token cố định (tránh thêm truy vấn cho thiết bị).
+  const fixedToken =
+    tokenMatches(req, env.ADMIN_TOKEN) ||
+    tokenMatches(req, env.DEVICE_TOKEN) ||
+    tokenMatches(req, env.BACKUP_TOKEN);
+  const sessionUser = fixedToken ? null : await getSessionUser(req, db());
   const admin = () =>
     tokenMatches(req, env.ADMIN_TOKEN) || (sessionUser !== null && sessionUser.role === "admin");
   const device = () => tokenMatches(req, env.DEVICE_TOKEN);
@@ -180,31 +187,15 @@ export async function route(req: Request, env: WorkerEnv) {
     const password = typeof x?.password === "string" ? x.password : "";
     if (!username || !password) return bad("Tên đăng nhập và mật khẩu là bắt buộc", 400);
 
-    let user = await db()
+    // Tài khoản chỉ được tạo bởi chủ hệ thống qua wrangler (không tự tạo qua API).
+    const user = await db()
       .prepare("SELECT id, username, password_hash, salt, role FROM users WHERE username=?")
       .bind(username)
       .first<{ id: number; username: string; password_hash: string; salt: string; role: string }>();
-
-    // Nếu bảng users chưa có ai (hệ thống mới khởi tạo): tự động tạo tài khoản admin đầu tiên
-    if (!user) {
-      const countRes = await db().prepare("SELECT count(*) as count FROM users").first<{ count: number }>();
-      if ((countRes?.count ?? 0) === 0 && username === "admin" && password.length >= 6) {
-        const { hashHex, saltHex } = await hashPassword(password);
-        const nowIso = new Date().toISOString();
-        const res = await db()
-          .prepare("INSERT INTO users(username, password_hash, salt, role, created_at) VALUES(?,?,?,'admin',?) RETURNING id")
-          .bind(username, hashHex, saltHex, nowIso)
-          .first<{ id: number }>();
-        user = { id: res!.id, username, password_hash: hashHex, salt: saltHex, role: "admin" };
-      } else {
-        return bad("Tên đăng nhập hoặc mật khẩu không chính xác", 401);
-      }
-    } else {
-      // Xác minh mật khẩu bằng PBKDF2
-      const { hashHex } = await hashPassword(password, user.salt);
-      if (!timingSafeEqual(hashHex, user.password_hash)) {
-        return bad("Tên đăng nhập hoặc mật khẩu không chính xác", 401);
-      }
+    if (!user) return bad("Tên đăng nhập hoặc mật khẩu không chính xác", 401);
+    const { hashHex } = await hashPassword(password, user.salt);
+    if (!timingSafeEqual(hashHex, user.password_hash)) {
+      return bad("Tên đăng nhập hoặc mật khẩu không chính xác", 401);
     }
 
     // Sinh Session Token ngẫu nhiên 256-bit
@@ -213,6 +204,7 @@ export async function route(req: Request, env: WorkerEnv) {
     const expiresAt = new Date(now.getTime() + 14 * 86400000).toISOString(); // 14 ngày
 
     await db().batch([
+      db().prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now.toISOString()),
       db()
         .prepare("INSERT INTO sessions(token, user_id, username, role, expires_at, created_at) VALUES(?,?,?,?,?,?)")
         .bind(sessionToken, user.id, user.username, user.role, expiresAt, now.toISOString()),
@@ -412,9 +404,11 @@ export async function route(req: Request, env: WorkerEnv) {
     });
   }
   if (path === "commands" && method === "GET") {
+    // Lệnh quá hạn không được giao cho thiết bị: tránh tưới bất ngờ khi thiết bị online lại sau nhiều giờ.
+    const cutoff = new Date(Date.now() - COMMAND_TTL_MS).toISOString();
     const result = await db()
-      .prepare("SELECT id,action,row,created_at FROM commands WHERE device_id=? AND status='pending' ORDER BY id LIMIT 16")
-      .bind(id)
+      .prepare("SELECT id,action,row,created_at FROM commands WHERE device_id=? AND status='pending' AND created_at>? ORDER BY id LIMIT 16")
+      .bind(id, cutoff)
       .all();
     return json({ device_id: id, commands: result.results });
   }
@@ -452,6 +446,18 @@ export async function route(req: Request, env: WorkerEnv) {
       .bind(id, x.action, x.row, new Date().toISOString())
       .first<{ id: number }>();
     return json({ id: item?.id, status: "pending" }, 201);
+  }
+  if (path === "admin/commands" && method === "GET") {
+    const result = await db()
+      .prepare("SELECT id,action,row,status,created_at,acked_at FROM commands WHERE device_id=? ORDER BY id DESC LIMIT 20")
+      .bind(id)
+      .all<{ id: number; action: string; row: number; status: string; created_at: string; acked_at: string | null }>();
+    const cutoff = Date.now() - COMMAND_TTL_MS;
+    const commands = result.results.map((c) => ({
+      ...c,
+      status: c.status === "pending" && Date.parse(c.created_at) <= cutoff ? "expired" : c.status,
+    }));
+    return json({ device_id: id, ttl_seconds: COMMAND_TTL_MS / 1000, commands });
   }
   if (path === "admin/latest" && method === "GET") {
     const item = await db()
