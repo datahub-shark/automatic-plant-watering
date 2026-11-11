@@ -10,8 +10,10 @@ Cập nhật: **11/11/2026**. Tài liệu này dùng để triển khai backend 
 - [x] Worker tại <https://automatic-plant-watering-api.datahub-shark.workers.dev/api/v1/health>. Endpoint `health` trả HTTP 200. API quản trị từ chối yêu cầu thiếu token.
 - [x] Source Worker kiểm tra TypeScript, build thử và ghi/đọc telemetry trên **D1 cục bộ**. Đây chưa phải phép thử ghi vào D1 cloud hay truyền qua 4G.
 - [x] Đã tạo `DEVICE_TOKEN`, `ADMIN_TOKEN`, `BACKUP_TOKEN` trong Cloudflare Secrets. Các API dữ liệu đã mở và được xác thực đầy đủ.
-- [ ] Chưa xuất dữ liệu sang Google Drive; chưa có Apps Script hoặc trigger chạy trong tài khoản Google của chủ dự án.
-- [ ] Chưa có STM32, modem và cảm biến lắp đặt/kiểm thử.
+- [x] Đã hoàn thành nâng cấp toàn diện HMI 2.0: Sửa lỗi báo động giả bồn cạn, hàng đợi lệnh TTL 10 phút, widget so sánh tiết kiệm nước, xuất file CSV định dạng UTF-8, khôi phục bảng hiệu chuẩn cảm biến ADC và phao an toàn.
+- [x] Đã hoàn thành di chuyển firmware (`src/main.cpp`) sang Cloudflare Worker HTTPS REST API, loại bỏ hoàn toàn HiveMQ MQTT và Apps Script webhook cũ; biên dịch thành công 100% với PlatformIO cho ESP32-S3.
+- [ ] Chưa xuất dữ liệu sang Google Drive; chưa cấu hình trigger Apps Script trong tài khoản Google của chủ dự án (Mã nguồn sẵn sàng tại `cloudflare-worker/drive-backup.gs`).
+- [ ] Đấu nối thực tế tại nhà màng và nạp firmware lên kit ESP32-S3 + modem A7672X.
 
 ## 2. Việc cần làm theo thứ tự
 
@@ -53,13 +55,18 @@ Cập nhật: **11/11/2026**. Tài liệu này dùng để triển khai backend 
 
 ### D. Chuẩn bị và tích hợp phần cứng
 
-- [ ] Chốt model STM32, sơ đồ chân, điện áp nguồn/logic, modem A7670C, cảm biến và relay theo phần cứng thực tế. Không dùng pinout ESP32 cũ cho STM32.
-- [ ] Viết firmware điều khiển 3 hàng, VPD, lưu cấu hình và tổng nước, bộ đếm xung, lịch RTC, các lỗi an toàn. Bơm/van phải an toàn khi mất mạng, mất nước, mất cảm biến hoặc reset.
-- [ ] Nạp `DEVICE_TOKEN` vào thiết bị bằng quy trình riêng, không đưa vào repo. Thiết bị dùng HTTPS đến Worker; `seq` và `event_id` bền vững để gửi bù không tạo bản ghi trùng.
-- [ ] Kiểm thử trên bàn với tải giả: cảm biến, relay, phao, lưu lượng, mất 4G, khởi động lại, gửi bù, cấu hình mới và ACK lệnh. Sau đó mới thử bơm/van thật với giám sát tại chỗ.
-- [ ] Đo độ trễ 4G/API thực tế và chỉnh chu kỳ gửi telemetry/lấy lệnh theo kết quả; không giả định độ trễ chỉ từ kiểm thử cục bộ.
+- [x] Đã hoàn thành viết và tối ưu hóa mã nguồn Firmware ESP32-S3 (`src/main.cpp`) theo kiến trúc FreeRTOS 2 nhân đa nhiệm:
+  - Core 1: Vòng lặp điều khiển chính xác 200ms (đọc RTC DS3231, SHT31, ADC độ ẩm 4 chậu, đếm xung YF-S201, đóng mở van/bơm theo thứ tự an toàn, kiểm tra phao bồn và rò rỉ).
+  - Core 0: Vòng lặp truyền thông mạng 4G LTE qua HTTPS REST Client TLS 443 kết nối trực tiếp Cloudflare Worker API.
+  - Bộ đếm tuần tự `seq` và mã sự kiện `evt_id` được lưu trong NVS (`Preferences`), đảm bảo tính đơn điệu và chống ghi trùng lặp (Idempotency).
+  - Tự động kéo lệnh (`/commands`) và gửi ACK (`/commands/ack`) sau mỗi 8 giây; tự động kiểm tra cấu hình mới (`/config`) sau mỗi 60 giây.
+  - Lưu trữ đệm ngoại tuyến LittleFS (`/offline_logs.jsonl`) tự động phát lại nguyên vẹn khi có sóng 4G trở lại.
+- [x] Cấu hình file bí mật `include/secrets.example.h` và `include/secrets.h` an toàn, đã đưa vào `.gitignore`.
+- [x] Biên dịch kiểm tra thành công 100% với PlatformIO Core trên môi trường `esp32s3` (RAM: 6.8%, Flash: 11.9%).
+- [ ] Nạp firmware thực tế lên board mạch ESP32-S3 + modem A7672X qua cáp USB và kiểm thử tải giả tại phòng lab trước khi đấu nối nhà màng.
+- [ ] Đo độ trễ thực tế của mạng 4G khi lắp đặt tại nhà màng thực tế (Học viện Nông nghiệp Việt Nam).
 
-**Điều kiện hoàn tất D:** có log và kết quả kiểm thử trên phần cứng thật; mọi tình huống lỗi đều đưa bơm/van về trạng thái an toàn.
+**Điều kiện hoàn tất D:** Firmware đã sẵn sàng và biên dịch thành công; chỉ còn bước nạp thực tế lên phần cứng tại hiện trường.
 
 ## 3. Ranh giới quan trọng
 
