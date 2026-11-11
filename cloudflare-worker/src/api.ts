@@ -16,7 +16,7 @@ const isoOk = (v: unknown): v is string =>
   Number.isFinite(Date.parse(v));
 const num = (v: unknown, min: number, max: number) =>
   typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
-const bool = (v: unknown) => typeof v === "boolean";
+const bool = (v: unknown) => typeof v === "boolean" || v === 0 || v === 1;
 const rowOk = (v: unknown) => Number.isInteger(v) && Number(v) >= 1 && Number(v) <= 3;
 // Lệnh điều khiển chỉ có hiệu lực trong 10 phút kể từ khi tạo.
 const COMMAND_TTL_MS = 10 * 60 * 1000;
