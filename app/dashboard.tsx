@@ -9,6 +9,8 @@ import {
   BookOpen,
   CheckCircle2,
   Droplets,
+  Eye,
+  EyeOff,
   Gauge,
   Key,
   Layers,
@@ -24,6 +26,7 @@ import {
   Square,
   Thermometer,
   Unlock,
+  User,
   Wind,
   Wrench,
   X,
@@ -140,10 +143,24 @@ export default function Dashboard({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  // Token xác thực lưu trong bộ nhớ sessionStorage (không lưu cứng vào code/git)
+  // Quản lý Tài khoản & Đăng nhập
   const [adminToken, setAdminToken] = useState<string>("");
+  const [currentUser, setCurrentUser] = useState<{ username: string; role: string } | null>(null);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [loginMode, setLoginMode] = useState<"account" | "token">("account");
+  const [usernameInput, setUsernameInput] = useState("admin");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [authError, setAuthError] = useState("");
+
+  // Modal đổi mật khẩu
+  const [changePassOpen, setChangePassOpen] = useState(false);
+  const [oldPassInput, setOldPassInput] = useState("");
+  const [newPassInput, setNewPassInput] = useState("");
+  const [confirmPassInput, setConfirmPassInput] = useState("");
+  const [changePassError, setChangePassError] = useState("");
 
   // Modal xác nhận thao tác cho công nhân
   const [confirmModal, setConfirmModal] = useState<{
@@ -168,11 +185,24 @@ export default function Dashboard({
   const [simRh, setSimRh] = useState(68);
   const [simVpd, setSimVpd] = useState(1.45);
 
-  // Đọc token từ sessionStorage khi khởi tạo
+  // Đọc token từ storage khi khởi tạo
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const saved = sessionStorage.getItem("TOMATO_ADMIN_TOKEN");
-      if (saved) setAdminToken(saved);
+      const saved = sessionStorage.getItem("TOMATO_ADMIN_TOKEN") || localStorage.getItem("TOMATO_ADMIN_TOKEN");
+      if (saved) {
+        setAdminToken(saved);
+        // Kiểm tra phiên đăng nhập với Worker API
+        fetch(`${CLOUDFLARE_WORKER_API}/auth/me`, {
+          headers: { Authorization: `Bearer ${saved}` },
+        })
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.authenticated && d.user) {
+              setCurrentUser(d.user);
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, []);
 
@@ -187,7 +217,6 @@ export default function Dashboard({
         headers.set("Authorization", `Bearer ${adminToken}`);
       }
 
-      // Xác định base URL: nếu đường dẫn tương đối không có host thì gọi thẳng Cloudflare Worker
       const url = `${CLOUDFLARE_WORKER_API}/${path}`;
       const res = await fetch(url, { ...options, headers });
       const body = (await res.json()) as T & { error?: string };
@@ -201,7 +230,6 @@ export default function Dashboard({
   const refresh = useCallback(async () => {
     if (mode !== "live") return;
     try {
-      // Khi không có token, các endpoint admin sẽ trả 403. Ta bắt lỗi để hiển thị ở chế độ Read-only
       const [devRes, cfgRes] = await Promise.all([
         request<{ devices: Device[] }>("admin/devices").catch(() => ({ devices: [] })),
         request<{ config: Config; version: number }>(`config?device_id=${query}`).catch(() => null),
@@ -271,7 +299,6 @@ export default function Dashboard({
     setConfirmModal((prev) => ({ ...prev, open: false }));
 
     if (mode === "demo") {
-      // Chế độ tập sự mô phỏng tại chỗ
       if (action === "start" && rowId) {
         setSimRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, valve: true, daily_l: r.daily_l + 0.5 } : r)));
         setSimPumpOn(true);
@@ -299,7 +326,6 @@ export default function Dashboard({
         setNotice(`[Mô phỏng] Đã mở van Hàng ${rowId} và bật bơm. Nước đang chảy trên sơ đồ!`);
       } else if (action === "stop" && rowId) {
         setSimRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, valve: false } : r)));
-        // Tắt bơm nếu tất cả van đóng
         const remaining = simRows.filter((r) => r.id !== rowId && r.valve);
         if (remaining.length === 0) setSimPumpOn(false);
         setEvents((prev) => [
@@ -324,7 +350,7 @@ export default function Dashboard({
     // Chế độ Vận hành Thực tế (Live) qua Worker API
     if (!adminToken) {
       setLoginModalOpen(true);
-      setNotice("Yêu cầu nhập Token Quản trị để gửi lệnh điều khiển xuống thiết bị.");
+      setNotice("Yêu cầu đăng nhập tài khoản để điều khiển thiết bị.");
       return;
     }
 
@@ -354,7 +380,6 @@ export default function Dashboard({
     }
   };
 
-  // Mở hộp thoại xác nhận tưới hàng
   const promptStartRow = (rowId: number) => {
     if (!tankOk) {
       alert("CẢNH BÁO AN TOÀN: Bồn nước đang cạn! Không thể bật van hay máy bơm để bảo vệ thiết bị.");
@@ -369,7 +394,6 @@ export default function Dashboard({
     });
   };
 
-  // Mở hộp thoại xác nhận dừng tưới hàng
   const promptStopRow = (rowId: number) => {
     setConfirmModal({
       open: true,
@@ -380,7 +404,6 @@ export default function Dashboard({
     });
   };
 
-  // Mở hộp thoại Dừng Khẩn Cấp (E-STOP)
   const promptEstop = () => {
     setConfirmModal({
       open: true,
@@ -390,26 +413,114 @@ export default function Dashboard({
     });
   };
 
-  // Xử lý lưu token quản trị
-  const handleSaveToken = () => {
-    const trimmed = tokenInput.trim();
-    if (!trimmed) return;
-    setAdminToken(trimmed);
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("TOMATO_ADMIN_TOKEN", trimmed);
+  // Xử lý đăng nhập tài khoản
+  const handleLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError("");
+    setBusy(true);
+
+    if (loginMode === "token") {
+      const trimmed = tokenInput.trim();
+      if (!trimmed) {
+        setAuthError("Vui lòng dán mã Token Quản trị");
+        setBusy(false);
+        return;
+      }
+      setAdminToken(trimmed);
+      setCurrentUser({ username: "Kỹ sư (Token)", role: "admin" });
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("TOMATO_ADMIN_TOKEN", trimmed);
+      }
+      setLoginModalOpen(false);
+      setNotice("Đã kích hoạt quyền Quản trị bằng Token.");
+      setBusy(false);
+      refresh();
+      return;
     }
-    setLoginModalOpen(false);
-    setNotice("Đã lưu phiên làm việc Quản trị viên.");
-    refresh();
+
+    try {
+      const res = await fetch(`${CLOUDFLARE_WORKER_API}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: usernameInput.trim(),
+          password: passwordInput,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Tên đăng nhập hoặc mật khẩu không đúng");
+      }
+      setAdminToken(data.token);
+      setCurrentUser({ username: data.username, role: data.role });
+      if (typeof window !== "undefined") {
+        if (rememberMe) {
+          localStorage.setItem("TOMATO_ADMIN_TOKEN", data.token);
+        }
+        sessionStorage.setItem("TOMATO_ADMIN_TOKEN", data.token);
+      }
+      setLoginModalOpen(false);
+      setPasswordInput("");
+      setNotice(`Xin chào ${data.username}! Bạn đã đăng nhập thành công.`);
+      refresh();
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Đăng nhập thất bại");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Xử lý đổi mật khẩu
+  const handleChangePassword = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setChangePassError("");
+    if (newPassInput.length < 8) {
+      setChangePassError("Mật khẩu mới phải có ít nhất 8 ký tự.");
+      return;
+    }
+    if (newPassInput !== confirmPassInput) {
+      setChangePassError("Xác nhận mật khẩu mới không khớp.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await request<{ success: boolean; message?: string }>("auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          old_password: oldPassInput,
+          new_password: newPassInput,
+        }),
+      });
+      setChangePassOpen(false);
+      setOldPassInput("");
+      setNewPassInput("");
+      setConfirmPassInput("");
+      setNotice("Đã cập nhật mật khẩu mới trên Cloudflare thành công!");
+    } catch (err) {
+      setChangePassError(err instanceof Error ? err.message : "Đổi mật khẩu thất bại");
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Đăng xuất
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (adminToken) {
+      try {
+        await fetch(`${CLOUDFLARE_WORKER_API}/auth/logout`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+      } catch {}
+    }
     setAdminToken("");
+    setCurrentUser(null);
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("TOMATO_ADMIN_TOKEN");
+      localStorage.removeItem("TOMATO_ADMIN_TOKEN");
     }
-    setNotice("Đã đăng xuất phiên làm việc.");
+    setNotice("Đã đăng xuất tài khoản an toàn.");
   };
 
   return (
@@ -438,7 +549,7 @@ export default function Dashboard({
           </div>
 
           {/* Thiết bị, Trạng thái & Nút Dừng Khẩn Cấp */}
-          <div className="flex items-center gap-2.5 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3">
             {/* Bộ chọn Thiết bị */}
             <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-300 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700">
               <span className="text-slate-400 text-[11px]">Trạm:</span>
@@ -489,27 +600,40 @@ export default function Dashboard({
               className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-black text-xs uppercase tracking-wider shadow-sm transition-all active:scale-95 ring-2 ring-red-500/30"
             >
               <Power className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">DỪNG KHẨN CẤP</span>
+              <span className="hidden sm:inline">E-STOP</span>
             </button>
 
-            {/* Nút Đăng nhập / Đăng xuất Token */}
-            {adminToken ? (
-              <button
-                onClick={handleLogout}
-                title="Đăng xuất phiên quản trị"
-                className="flex items-center gap-1 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-700"
-              >
-                <LogOut className="w-3.5 h-3.5 text-slate-400" />
-                <span className="hidden sm:inline">Thoát</span>
-              </button>
+            {/* TÀI KHOẢN NGƯỜI DÙNG */}
+            {currentUser ? (
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 text-xs bg-slate-800 text-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-700">
+                  <User className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="font-bold">{currentUser.username}</span>
+                </div>
+                <button
+                  onClick={() => setChangePassOpen(true)}
+                  title="Đổi mật khẩu tài khoản"
+                  className="hidden sm:inline-block text-[11px] text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 py-1.5 rounded-lg border border-slate-700 font-medium"
+                >
+                  Đổi MK
+                </button>
+                <button
+                  onClick={handleLogout}
+                  title="Đăng xuất"
+                  className="flex items-center gap-1 text-xs text-red-300 hover:text-red-200 bg-red-950/50 hover:bg-red-900/60 px-2.5 py-1.5 rounded-lg border border-red-800/60"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Thoát</span>
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => setLoginModalOpen(true)}
-                title="Đăng nhập mã Token quản trị"
-                className="flex items-center gap-1 text-xs text-emerald-300 hover:text-emerald-200 bg-emerald-950/60 hover:bg-emerald-900/60 px-2.5 py-1.5 rounded-lg border border-emerald-800/80"
+                title="Đăng nhập tài khoản quản trị"
+                className="flex items-center gap-1.5 text-xs text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg font-bold shadow-sm transition-all"
               >
-                <Key className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Đăng nhập</span>
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Đăng nhập</span>
               </button>
             )}
           </div>
@@ -548,7 +672,7 @@ export default function Dashboard({
               </span>
             ) : (
               <span>
-                📡 Dữ liệu đọc từ Cloudflare D1 cluster APAC qua HTTPS.
+                📡 Dữ liệu đọc trực tiếp từ Cloudflare D1 cluster APAC qua HTTPS.
               </span>
             )}
           </div>
@@ -636,7 +760,6 @@ export default function Dashboard({
 
       {/* 4. MAIN CONTENT CONTAINER */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
-        {/* Banner thông báo trạng thái hoặc lỗi */}
         {notice && (
           <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-900 text-xs font-semibold flex items-center justify-between gap-3 shadow-sm">
             <span>{notice}</span>
@@ -658,9 +781,7 @@ export default function Dashboard({
         {/* ===================== TAB 1: TỔNG QUAN & ĐIỀU KHIỂN ===================== */}
         {tab === "overview" && (
           <div className="space-y-6">
-            {/* THANH TỔNG QUAN HỆ THỐNG CẤP NƯỚC (LEVEL 1 SITUATIONAL AWARENESS) */}
             <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* 1. MỰC NƯỚC BỒN CHỨA */}
               <div
                 className={`p-4 rounded-2xl border transition-all ${
                   tankOk ? "bg-white border-slate-200/90 shadow-sm" : "bg-red-50 border-red-300 shadow-md ring-2 ring-red-400"
@@ -681,7 +802,6 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {/* 2. TRẠNG THÁI MÁY BƠM 12V */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bơm Tăng Áp 12V</span>
@@ -698,7 +818,6 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {/* 3. VI KHÍ HẬU SHT31 & CHỈ SỐ VPD */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Vi Khí Hậu Nhà Màng</span>
@@ -726,7 +845,6 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {/* 4. TỔNG LƯỢNG NƯỚC ĐÃ TƯỚI HÔM NAY */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tổng Nước Hôm Nay</span>
@@ -744,9 +862,9 @@ export default function Dashboard({
               </div>
             </section>
 
-            {/* 3 THẺ ĐIỀU KHIỂN CHI TIẾT 3 HÀNG CÀ CHUA (LEVEL 2 OPERATION) */}
+            {/* 3 THẺ ĐIỀU KHIỂN CHI TIẾT 3 HÀNG CÀ CHUA */}
             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {/* ================= THẺ HÀNG 1: HẸN GIỜ ================= */}
+              {/* ================= THẺ HÀNG 1 ================= */}
               <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -790,7 +908,6 @@ export default function Dashboard({
                   </div>
                 </div>
 
-                {/* Nút thao tác to bản cho công nhân */}
                 <div className="mt-5 grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
                   <button
                     disabled={!tankOk || busy || rows.find((r) => r.id === 1)?.valve}
@@ -809,7 +926,7 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {/* ================= THẺ HÀNG 2: THEO ĐỘ ẨM ĐẤT ================= */}
+              {/* ================= THẺ HÀNG 2 ================= */}
               <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -832,7 +949,6 @@ export default function Dashboard({
                     Tưới tự động dựa trên độ ẩm trung bình chậu 1 và chậu 3. Ngắt khi đủ ẩm hoặc đủ 2L.
                   </p>
 
-                  {/* Thanh đo trực quan mức ẩm đất */}
                   <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs space-y-2.5">
                     <div className="flex justify-between items-baseline">
                       <span className="text-slate-600 font-medium">Độ ẩm đất trung bình:</span>
@@ -841,7 +957,6 @@ export default function Dashboard({
                       </strong>
                     </div>
 
-                    {/* Gauge bar */}
                     <div className="w-full h-3 rounded-full bg-slate-200 relative overflow-hidden">
                       <div
                         className={`h-full transition-all duration-500 rounded-full ${
@@ -887,7 +1002,7 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {/* ================= THẺ HÀNG 3: ĐA CẢM BIẾN & VPD ================= */}
+              {/* ================= THẺ HÀNG 3 ================= */}
               <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -918,7 +1033,6 @@ export default function Dashboard({
                       </strong>
                     </div>
 
-                    {/* Gauge bar */}
                     <div className="w-full h-3 rounded-full bg-slate-200 relative overflow-hidden">
                       <div
                         className={`h-full transition-all duration-500 rounded-full ${
@@ -932,7 +1046,6 @@ export default function Dashboard({
                       ></div>
                     </div>
 
-                    {/* Huy hiệu bù trừ thời tiết thông minh */}
                     <div className="flex items-center justify-between p-2 rounded-lg bg-indigo-50 border border-indigo-100 text-[11px]">
                       <span className="font-semibold text-indigo-900">
                         {vpd != null && vpd >= config.vpdHot ? "🔥 Nắng gắt (Bù ẩm)" : "🌤 Khí hậu thuận lợi"}
@@ -1076,9 +1189,7 @@ export default function Dashboard({
               </button>
             </div>
 
-            {/* Form grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Cột 1: Hàng 1 */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
                 <h4 className="font-bold text-sm text-slate-800">Hàng 1 — Lịch Hẹn Giờ</h4>
                 <div className="space-y-2 text-xs">
@@ -1130,7 +1241,6 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {/* Cột 2: Hàng 2 */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
                 <h4 className="font-bold text-sm text-slate-800">Hàng 2 — Ngưỡng Độ Ẩm</h4>
                 <div className="space-y-2 text-xs">
@@ -1174,7 +1284,6 @@ export default function Dashboard({
                 </div>
               </div>
 
-              {/* Cột 3: Hàng 3 & VPD */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
                 <h4 className="font-bold text-sm text-slate-800">Hàng 3 — Bù Khí Hậu VPD</h4>
                 <div className="space-y-2 text-xs">
@@ -1272,51 +1381,237 @@ export default function Dashboard({
         </div>
       )}
 
-      {/* 6. MODAL ĐĂNG NHẬP TOKEN BẢO MẬT */}
+      {/* 6. MODAL ĐĂNG NHẬP TÀI KHOẢN CLOUD AN TOÀN */}
       {loginModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Key className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-bold text-base text-slate-900">Đăng Nhập Quản Trị Viên</h3>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                  <User className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">Đăng Nhập Hệ Thống</h3>
+                  <p className="text-[11px] text-slate-500">Tài khoản lưu trữ an toàn trên Cloudflare D1</p>
+                </div>
               </div>
               <button onClick={() => setLoginModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-              Nhập mã <strong>ADMIN_TOKEN</strong> để kích hoạt quyền gửi lệnh tưới thủ công và lưu thông số cấu hình. Mã token chỉ lưu tạm thời trong phiên làm việc của tab trình duyệt này (sessionStorage).
-            </p>
-
-            <input
-              type="password"
-              placeholder="Dán mã ADMIN_TOKEN tại đây..."
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
-              className="w-full p-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 mb-4 focus:outline-emerald-600 font-mono"
-            />
-
-            <div className="flex items-center justify-end gap-2">
+            {/* Chuyển tab giữa Tài khoản và Token */}
+            <div className="flex rounded-xl bg-slate-100 p-1 mb-4 text-xs font-bold">
               <button
-                onClick={() => setLoginModalOpen(false)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600"
+                type="button"
+                onClick={() => setLoginMode("account")}
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  loginMode === "account" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
               >
-                Đóng
+                Tài khoản &amp; Mật khẩu
               </button>
               <button
-                onClick={handleSaveToken}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm"
+                type="button"
+                onClick={() => setLoginMode("token")}
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  loginMode === "token" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
               >
-                Lưu &amp; Kích hoạt
+                Mã Token Quản trị
               </button>
             </div>
+
+            {authError && (
+              <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+                {authError}
+              </div>
+            )}
+
+            {loginMode === "account" ? (
+              <form onSubmit={handleLogin} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Tên đăng nhập</label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      type="text"
+                      required
+                      value={usernameInput}
+                      onChange={(e) => setUsernameInput(e.target.value)}
+                      placeholder="admin"
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-emerald-600"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Mật khẩu</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder="Nhập mật khẩu..."
+                      className="w-full pl-9 pr-10 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-emerald-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>Ghi nhớ đăng nhập trên máy này</span>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setLoginModalOpen(false)}
+                    className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                  >
+                    Đóng
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm disabled:opacity-50"
+                  >
+                    {busy ? "Đang xác thực..." : "Đăng nhập ngay"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-3.5">
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Nhập trực tiếp mã <strong>ADMIN_TOKEN</strong> 256-bit đã cấu hình trên Cloudflare Secrets.
+                </p>
+                <input
+                  type="password"
+                  placeholder="Dán mã ADMIN_TOKEN..."
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-emerald-600 font-mono"
+                />
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setLoginModalOpen(false)}
+                    className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                  >
+                    Đóng
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLogin()}
+                    disabled={busy}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm"
+                  >
+                    Lưu &amp; Kích hoạt
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 7. FOOTER */}
+      {/* 7. MODAL ĐỔI MẬT KHẨU */}
+      {changePassOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">Đổi Mật Khẩu Quản Trị</h3>
+                  <p className="text-[11px] text-slate-500">Cập nhật trực tiếp lên D1 Cloud</p>
+                </div>
+              </div>
+              <button onClick={() => setChangePassOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {changePassError && (
+              <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+                {changePassError}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Mật khẩu hiện tại</label>
+                <input
+                  type="password"
+                  required
+                  value={oldPassInput}
+                  onChange={(e) => setOldPassInput(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Mật khẩu mới (tối thiểu 8 ký tự)</label>
+                <input
+                  type="password"
+                  required
+                  value={newPassInput}
+                  onChange={(e) => setNewPassInput(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Xác nhận mật khẩu mới</label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPassInput}
+                  onChange={(e) => setConfirmPassInput(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-emerald-600"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setChangePassOpen(false)}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-700 hover:bg-indigo-800 text-white shadow-sm disabled:opacity-50"
+                >
+                  {busy ? "Đang lưu..." : "Cập nhật mật khẩu"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 8. FOOTER */}
       <footer className="bg-white border-t border-slate-200 text-slate-400 text-[11px] py-4 text-center">
         Dự án Nghiên cứu Hệ thống Tưới Tự Động 3 Hàng Cà Chua (12 Chậu) • Học viện Nông nghiệp Việt Nam (HVNN) • 2026
       </footer>
