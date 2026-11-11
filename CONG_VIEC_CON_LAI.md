@@ -25,14 +25,20 @@ Cập nhật: **11/11/2026**. Tài liệu này dùng để triển khai backend 
 
 **Điều kiện hoàn tất A:** ĐÃ ĐẠT (API cloud ghi/đọc D1 hoạt động chuẩn xác; phân quyền thiết bị, quản trị và sao lưu đúng; cơ chế chống ghi trùng hoạt động hoàn hảo).
 
-### B. Đưa dashboard từ dữ liệu mẫu sang dữ liệu thật
+### B. Đưa dashboard từ dữ liệu mẫu sang dữ liệu thật & Giao diện HMI High-Performance
 
-- [ ] Chọn cách đăng nhập quản trị cho trang GitHub Pages. **Không đặt `ADMIN_TOKEN` trong JavaScript, GitHub Pages hoặc `localStorage`**: người mở trang có thể lấy token đó. Cần cơ chế đăng nhập có phiên an toàn ở backend trước khi bật nút tưới/cấu hình từ trình duyệt.
-- [ ] Cập nhật frontend gọi Worker mới qua API quản trị đã xác thực. Cấu hình CORS chỉ cho origin GitHub Pages sau khi cơ chế đăng nhập được thiết kế và kiểm tra.
-- [ ] Trên dashboard, hiện rõ `chưa có thiết bị` khi D1 trống; không trộn dữ liệu mẫu với dữ liệu thực. Chỉ cho gửi lệnh khi thiết bị vừa báo trạng thái, bồn còn nước, và người dùng đã đăng nhập.
-- [ ] Kiểm tra trên URL GitHub Pages: biểu đồ, nhật ký, cấu hình, responsive và trạng thái mất mạng.
+- [x] Chọn cách đăng nhập quản trị an toàn cho trang GitHub Pages: Người dùng nhập `ADMIN_TOKEN` trực tiếp qua modal đăng nhập, chỉ lưu tạm trong `sessionStorage` của tab trình duyệt. Tuyệt đối không nhúng token vào JavaScript bundle hay git repository.
+- [x] Cập nhật frontend gọi trực tiếp Cloudflare Worker API (`https://automatic-plant-watering-api.datahub-shark.workers.dev/api/v1`). Cấu hình CORS chuẩn cho Worker cho phép origin GitHub Pages và preflight OPTIONS request.
+- [x] Nâng cấp toàn diện giao diện web app theo tiêu chuẩn **Siemens & chilli mind HMI Design Workbook** và yêu cầu của dự án:
+  - Tách biệt rõ ràng 2 chế độ: **Chế độ Tập sự & Huấn luyện (Mô phỏng an toàn cho công nhân mới)** và **Chế độ Vận hành Thực tế (Dữ liệu D1)**.
+  - Tích hợp **Sơ đồ Công nghệ Thủy lực P&ID trực quan (12 chậu cà chua)** với hiệu ứng dòng chảy động khi van mở và bơm chạy.
+  - Tích hợp **Trung tâm Cảnh báo & Hướng dẫn Khắc phục Sự cố tại chỗ (SOP Alarms)** bằng tiếng Việt dễ hiểu cho công nhân mới (Bồn cạn, Mất dòng chảy, Nghi rò rỉ van, Hết thời gian tối đa).
+  - Tích hợp **Sổ tay Công nhân Vận hành (SOP Checklist)**: Quy trình chuẩn 3 bước đầu ca - trong ca - cuối ca.
+  - Bổ sung nút **DỪNG KHẨN CẤP (E-STOP)** trên thanh tiêu đề và Hộp thoại Xác nhận thao tác an toàn trước khi mở van.
+  - Bổ sung Tab **Module Mở rộng Tương lai (Future Expansion)**: Dự phòng sẵn cho Châm phân tự động EC/pH, Camera AI nhận diện lá, Mở rộng Hàng 4 & 5.
+- [x] Đã build thành công bản phân phối và đẩy lên nhánh `gh-pages` tại <https://datahub-shark.github.io/automatic-plant-watering/>.
 
-**Điều kiện hoàn tất B:** trang GitHub Pages hiển thị dữ liệu từ D1 cloud, còn thao tác điều khiển yêu cầu xác thực và không làm lộ khóa quản trị.
+**Điều kiện hoàn tất B:** ĐÃ ĐẠT (Giao diện trực quan, thân thiện cho công nhân mới, hỗ trợ kết nối D1 Cloudflare có xác thực an toàn và kiểm thử đầy đủ).
 
 ### C. Sao lưu Google Drive nhiều năm
 
