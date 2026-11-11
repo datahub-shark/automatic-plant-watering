@@ -283,7 +283,7 @@ export default function Dashboard({
   staticMode?: boolean;
 }) {
   const [tab, setTab] = useState<"overview" | "map2d" | "pid" | "alarms" | "config" | "guide" | "future">("overview");
-  const [mode, setMode] = useState<"live" | "demo">("demo");
+  const [mode, setMode] = useState<"live" | "mqtt" | "demo">("demo");
   const [device, setDevice] = useState("stm32_01");
   const [devices, setDevices] = useState<Device[]>([]);
   const [latest, setLatest] = useState<Sample | null>(null);
@@ -340,9 +340,23 @@ export default function Dashboard({
   const [simRh, setSimRh] = useState(68);
   const [simVpd, setSimVpd] = useState(1.45);
 
-  // Đọc token từ storage khi khởi tạo
+  // Cấu hình kết nối VPS FastAPI + MQTT WebSocket realtime (nhánh mqtt-parallel)
+  const [vpsApiUrl, setVpsApiUrl] = useState<string>("");
+  const [vpsEmail, setVpsEmail] = useState<string>("admin@hvnn.edu.vn");
+  const [vpsPassword, setVpsPassword] = useState<string>("");
+  const [vpsToken, setVpsToken] = useState<string>("");
+  const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const [vpsMqttBrokerOk, setVpsMqttBrokerOk] = useState<boolean>(false);
+  const [mqttDeviceStatus, setMqttDeviceStatus] = useState<string>("unknown");
+
+  // Đọc token và URL VPS từ storage khi khởi tạo
   useEffect(() => {
     if (typeof window !== "undefined") {
+      const savedVpsUrl = localStorage.getItem("TOMATO_VPS_API_URL");
+      const savedVpsToken = localStorage.getItem("TOMATO_VPS_TOKEN");
+      if (savedVpsUrl) setVpsApiUrl(savedVpsUrl);
+      if (savedVpsToken) setVpsToken(savedVpsToken);
+
       const saved = sessionStorage.getItem("TOMATO_ADMIN_TOKEN") || localStorage.getItem("TOMATO_ADMIN_TOKEN");
       if (saved) {
         setAdminToken(saved);
@@ -350,7 +364,7 @@ export default function Dashboard({
         fetch(`${CLOUDFLARE_WORKER_API}/auth/me`, {
           headers: { Authorization: `Bearer ${saved}` },
         })
-          .then((r) => r.json())
+          .then((r) => r.json() as Promise<{ authenticated?: boolean; user?: { username: string; role: string } }>)
           .then((d) => {
             if (d.authenticated && d.user) {
               setCurrentUser(d.user);
@@ -361,6 +375,7 @@ export default function Dashboard({
     }
   }, []);
 
+  const cleanVpsUrl = useMemo(() => vpsApiUrl.trim().replace(/\/+$/, ""), [vpsApiUrl]);
   const query = encodeURIComponent(device);
 
   // Gọi API Cloudflare Worker có kèm Bearer Token nếu có
@@ -381,8 +396,46 @@ export default function Dashboard({
     [adminToken]
   );
 
-  // Tải dữ liệu thực từ Cloudflare Worker
+  // Gọi API FastAPI VPS Backend (MQTT + WebSocket)
+  const requestVps = useCallback(
+    async <T,>(path: string, options?: RequestInit): Promise<T> => {
+      const headers = new Headers(options?.headers);
+      if (vpsToken && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${vpsToken}`);
+      }
+      const res = await fetch(`${cleanVpsUrl}/${path.replace(/^\/+/, "")}`, { ...options, headers });
+      const body = (await res.json()) as T & { detail?: string; error?: string };
+      if (!res.ok) throw new Error(body.detail || body.error || `HTTP ${res.status}`);
+      return body;
+    },
+    [cleanVpsUrl, vpsToken]
+  );
+
+  // Tải dữ liệu thực từ Cloudflare Worker hoặc VPS MQTT Backend
   const refresh = useCallback(async () => {
+    if (mode === "mqtt") {
+      if (!cleanVpsUrl) return;
+      try {
+        const [healthRes, latRes, hisRes, evtRes] = await Promise.all([
+          requestVps<{ mqtt_connected?: boolean }>("health").catch(() => null),
+          requestVps<{ device_status?: string; telemetry?: Sample | null }>(`devices/${query}/latest`).catch(() => null),
+          requestVps<{ samples?: Sample[] }>(`devices/${query}/history`).catch(() => null),
+          requestVps<{ events?: EventItem[] }>(`devices/${query}/events`).catch(() => null),
+        ]);
+        if (healthRes) setVpsMqttBrokerOk(!!healthRes.mqtt_connected);
+        if (latRes) {
+          if (latRes.device_status) setMqttDeviceStatus(latRes.device_status);
+          if (latRes.telemetry) setLatest(latRes.telemetry);
+        }
+        if (hisRes?.samples) setHistory(hisRes.samples);
+        if (evtRes?.events) setLiveEvents(evtRes.events);
+        setError("");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Không thể kết nối VPS MQTT Backend");
+      }
+      return;
+    }
+
     if (mode !== "live") return;
     try {
       const [devRes, cfgRes] = await Promise.all([
@@ -415,15 +468,61 @@ export default function Dashboard({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thể đồng bộ với Cloudflare Worker");
     }
-  }, [adminToken, mode, query, request]);
+  }, [adminToken, cleanVpsUrl, mode, query, request, requestVps]);
 
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, 12000);
+    const timer = setInterval(refresh, mode === "mqtt" ? 30000 : 12000);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [mode, refresh]);
 
-  // Bộ phân giải dữ liệu hiển thị (Thực hoặc Mô phỏng)
+  // Luồng WebSocket realtime (/ws/sensor_data) khi chạy chế độ Song song MQTT + VPS
+  useEffect(() => {
+    if (mode !== "mqtt" || !cleanVpsUrl) {
+      setWsConnected(false);
+      return;
+    }
+    const wsUrl = cleanVpsUrl.replace(/^https:\/\//i, "wss://").replace(/^http:\/\//i, "ws://") + "/ws/sensor_data";
+    let ws: WebSocket | null = null;
+    let alive = true;
+
+    const connectWs = () => {
+      if (!alive) return;
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => setWsConnected(true);
+        ws.onclose = () => {
+          setWsConnected(false);
+          if (alive) setTimeout(connectWs, 4000);
+        };
+        ws.onerror = () => setWsConnected(false);
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.device_id && msg.device_id !== device) return;
+            if (msg.kind === "telemetry" && msg.data) {
+              setLatest(msg.data as Sample);
+              setHistory((prev) => [...prev.slice(-119), msg.data as Sample]);
+              setMqttDeviceStatus("online");
+            } else if (msg.kind === "event" && msg.data) {
+              setLiveEvents((prev) => [msg.data as EventItem, ...prev.slice(0, 49)]);
+            } else if (msg.kind === "status" && msg.data?.status) {
+              setMqttDeviceStatus(String(msg.data.status));
+            }
+          } catch {}
+        };
+      } catch {
+        setWsConnected(false);
+      }
+    };
+    connectWs();
+    return () => {
+      alive = false;
+      ws?.close();
+    };
+  }, [cleanVpsUrl, device, mode]);
+
+  // Bộ phân giải dữ liệu hiển thị (Thực, MQTT Realtime hoặc Mô phỏng)
   const parsed = useMemo(() => parseSample(latest), [latest]);
   const rows = mode === "demo" ? simRows : parsed?.rows ?? [];
   const tankOk = mode === "demo" ? simTankOk : (latest ? latest.tank_ok === 1 : null);
@@ -434,7 +533,12 @@ export default function Dashboard({
   const soilMoisture = mode === "demo" ? simSoil : parsed?.soil ?? [null, null, null, null];
   const h2 = mode === "demo" ? (simSoil[0] + simSoil[1]) / 2 : parsed?.h2 ?? null;
   const h3 = mode === "demo" ? (simSoil[2] + simSoil[3]) / 2 : parsed?.h3 ?? null;
-  const fresh = mode === "live" && !!latest && Date.now() - Date.parse(latest.received_at) < 180000;
+  const fresh =
+    mode === "mqtt"
+      ? wsConnected && (mqttDeviceStatus === "online" || (!!latest && Date.now() - Date.parse(latest.received_at) < 180000))
+      : mode === "live" && !!latest && Date.now() - Date.parse(latest.received_at) < 180000;
+  const canOperate = mode === "demo" || (mode === "live" && !!adminToken) || (mode === "mqtt" && !!vpsToken);
+  const isRemoteWaiting = (mode === "live" || mode === "mqtt") && tankOk === null;
   const totalDailyL = rows.reduce((acc, r) => acc + (r.daily_l || 0), 0);
 
   // Tính toán so sánh nước giữa 3 hàng
@@ -451,7 +555,7 @@ export default function Dashboard({
       ["Thời gian", "Thiết bị", "Nước Hàng 1 (L)", "Nước Hàng 2 (L)", "Nước Hàng 3 (L)", "Tổng Nước (L)", "Nhiệt độ (°C)", "Độ ẩm KK (%)", "VPD (kPa)", "Độ ẩm Đất S1 (%)", "Độ ẩm Đất S2 (%)", "Độ ẩm Đất S3 (%)", "Độ ẩm Đất S4 (%)", "Phao Bồn", "Bơm 12V"]
     ];
 
-    if (mode === "live" && history.length > 0) {
+    if ((mode === "live" || mode === "mqtt") && history.length > 0) {
       history.forEach((s) => {
         const p = parseSample(s);
         const soil = p?.soil ?? [null, null, null, null];
@@ -617,7 +721,43 @@ export default function Dashboard({
       return;
     }
 
-    // Chế độ Vận hành Thực tế (Live) qua Worker API
+    // Chế độ Vận hành Song song MQTT + VPS (Đẩy tức thì qua MQTT)
+    if (mode === "mqtt") {
+      if (!cleanVpsUrl) {
+        setNotice("Hãy nhập URL FastAPI VPS (ví dụ https://....trycloudflare.com) trước khi gửi lệnh MQTT.");
+        return;
+      }
+      if (!vpsToken) {
+        setNotice("Hãy đăng nhập vào VPS Backend (ở thanh cấu hình VPS phía trên) để lấy quyền gửi lệnh MQTT.");
+        return;
+      }
+      setBusy(true);
+      setNotice("");
+      try {
+        const data = await requestVps<{ mqtt_published?: boolean }>("commands", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            action === "estop"
+              ? { device_id: device, action: "estop" }
+              : { device_id: device, action, row: rowId }
+          ),
+        });
+        setNotice(
+          action === "estop"
+            ? "⚡ ĐÃ BẮN LỆNH E-STOP TỨC THÌ QUA MQTT BROKER!"
+            : `⚡ Đã phát lệnh ${action === "start" ? "TƯỚI" : "DỪNG"} Hàng ${rowId} qua MQTT (${data.mqtt_published ? "Đã đẩy <100ms" : "Đang chờ thiết bị"}).`
+        );
+        setTimeout(refresh, 1200);
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Gửi lệnh MQTT thất bại");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // Chế độ Vận hành Thực tế (Live) qua Cloudflare Worker API
     if (!adminToken) {
       setLoginModalOpen(true);
       setNotice("Yêu cầu đăng nhập tài khoản để điều khiển thiết bị.");
@@ -650,13 +790,44 @@ export default function Dashboard({
     }
   };
 
+  const handleVpsLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cleanVpsUrl) {
+      setNotice("Vui lòng nhập URL FastAPI VPS trước.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const form = new URLSearchParams();
+      form.append("username", vpsEmail.trim());
+      form.append("password", vpsPassword);
+      const body = await requestVps<{ access_token: string; username?: string }>("login", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      });
+      setVpsToken(body.access_token);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("TOMATO_VPS_API_URL", cleanVpsUrl);
+        localStorage.setItem("TOMATO_VPS_TOKEN", body.access_token);
+      }
+      setVpsPassword("");
+      setNotice(`Đã đăng nhập VPS Backend (${body.username || vpsEmail}) & bật quyền gửi lệnh MQTT!`);
+      refresh();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Đăng nhập VPS thất bại");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const promptStartRow = (rowId: number) => {
     if (tankOk === false) {
       alert("CẢNH BÁO AN TOÀN: Bồn nước đang cạn (phao báo chìm)! Không thể bật van hay máy bơm để bảo vệ thiết bị.");
       return;
     }
-    if (tankOk === null && mode === "live") {
-      alert("THÔNG BÁO: Đang chờ bản tin đầu tiên từ bộ điều khiển STM32. Vui lòng chờ thiết bị gửi dữ liệu trước khi phát lệnh tưới.");
+    if (tankOk === null && (mode === "live" || mode === "mqtt")) {
+      alert("THÔNG BÁO: Đang chờ bản tin đầu tiên từ bộ điều khiển. Vui lòng chờ thiết bị gửi dữ liệu trước khi phát lệnh tưới.");
       return;
     }
     setConfirmModal({
@@ -721,7 +892,12 @@ export default function Dashboard({
           password: passwordInput,
         }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        error?: string;
+        token: string;
+        username: string;
+        role: string;
+      };
       if (!res.ok) {
         throw new Error(data.error || "Tên đăng nhập hoặc mật khẩu không đúng");
       }
@@ -851,7 +1027,9 @@ export default function Dashboard({
                 mode === "demo"
                   ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
                   : fresh
-                  ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                  ? mode === "mqtt"
+                    ? "bg-indigo-500/20 text-indigo-200 border-indigo-400/40"
+                    : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
                   : "bg-slate-800 text-slate-400 border-slate-700"
               }`}
             >
@@ -860,11 +1038,23 @@ export default function Dashboard({
                   mode === "demo"
                     ? "bg-amber-400 animate-pulse"
                     : fresh
-                    ? "bg-emerald-400 animate-pulse"
+                    ? mode === "mqtt"
+                      ? "bg-cyan-400 animate-ping"
+                      : "bg-emerald-400 animate-pulse"
                     : "bg-slate-500"
                 }`}
               ></span>
-              {mode === "demo" ? "Chế độ Tập sự" : fresh ? "Đang trực tuyến" : "Mất mạng 4G"}
+              {mode === "demo"
+                ? "Chế độ Tập sự"
+                : mode === "mqtt"
+                ? wsConnected
+                  ? vpsMqttBrokerOk
+                    ? "MQTT + WS Live"
+                    : "WS Live (Chờ Broker)"
+                  : "Chờ VPS Tunnel"
+                : fresh
+                ? "Đang trực tuyến"
+                : "Mất mạng 4G"}
             </span>
 
             {/* Nút DỪNG KHẨN CẤP (E-STOP) */}
@@ -914,19 +1104,19 @@ export default function Dashboard({
         </div>
       </header>
 
-      {/* 2. CHUYỂN ĐỔI CHẾ ĐỘ & BẢNG THÔNG BÁO TẬP SỰ */}
+      {/* 2. CHUYỂN ĐỔI CHẾ ĐỘ & CẤU HÌNH VPS MQTT SONG SONG */}
       <div className="bg-slate-800 text-slate-200 border-b border-slate-700 text-xs py-2 px-4">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-bold text-slate-300">Chế độ vận hành:</span>
-            <div className="inline-flex rounded-lg bg-slate-900 p-0.5 border border-slate-700">
+            <div className="inline-flex flex-wrap rounded-lg bg-slate-900 p-0.5 border border-slate-700">
               <button
                 onClick={() => setMode("demo")}
                 className={`px-3 py-1 rounded-md font-bold transition-all ${
                   mode === "demo" ? "bg-amber-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                Tập sự & Xem mẫu (An toàn)
+                Tập sự &amp; Xem mẫu (An toàn)
               </button>
               <button
                 onClick={() => setMode("live")}
@@ -934,7 +1124,15 @@ export default function Dashboard({
                   mode === "live" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                Vận hành Thực tế (Cloudflare D1)
+                Cloudflare D1 (HTTPS)
+              </button>
+              <button
+                onClick={() => setMode("mqtt")}
+                className={`px-3 py-1 rounded-md font-bold transition-all ${
+                  mode === "mqtt" ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                ⚡ Song song MQTT + VPS (WebSocket)
               </button>
             </div>
           </div>
@@ -942,7 +1140,11 @@ export default function Dashboard({
           <div className="text-slate-400 text-[11px] flex items-center gap-3">
             {mode === "demo" ? (
               <span className="text-amber-300 font-medium">
-                ⚡ Bạn đang ở chế độ Tập sự: Các thao tác tưới là mô phỏng, không gửi lệnh ra van thật.
+                ⚡ Chế độ Tập sự: Thao tác mô phỏng tại chỗ, không gửi lệnh ra van thật.
+              </span>
+            ) : mode === "mqtt" ? (
+              <span className="text-indigo-300 font-medium">
+                ⚡ Kênh MQTT + WebSocket (/ws/sensor_data) qua FastAPI VPS &amp; đồng bộ song song Cloudflare D1.
               </span>
             ) : (
               <span>
@@ -951,6 +1153,69 @@ export default function Dashboard({
             )}
           </div>
         </div>
+
+        {/* Thanh cấu hình kết nối nhanh tới FastAPI VPS khi chọn chế độ MQTT */}
+        {mode === "mqtt" && (
+          <form
+            onSubmit={handleVpsLogin}
+            className="max-w-7xl mx-auto mt-2.5 pt-2.5 border-t border-slate-700/80 flex flex-wrap items-center gap-2 text-[11px]"
+          >
+            <span className="font-bold text-indigo-300 shrink-0">VPS Backend URL:</span>
+            <input
+              type="url"
+              value={vpsApiUrl}
+              onChange={(e) => {
+                setVpsApiUrl(e.target.value);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("TOMATO_VPS_API_URL", e.target.value.trim());
+                }
+              }}
+              placeholder="https://xxx.trycloudflare.com (hoặc https://api-mqtt...)"
+              className="flex-1 min-w-[210px] px-2.5 py-1 rounded-md bg-slate-900 border border-slate-600 text-white placeholder:text-slate-500 focus:border-indigo-400 outline-none"
+            />
+            {!vpsToken ? (
+              <>
+                <input
+                  type="email"
+                  value={vpsEmail}
+                  onChange={(e) => setVpsEmail(e.target.value)}
+                  placeholder="Email VPS Admin"
+                  className="w-40 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-600 text-white outline-none"
+                />
+                <input
+                  type="password"
+                  value={vpsPassword}
+                  onChange={(e) => setVpsPassword(e.target.value)}
+                  placeholder="Mật khẩu VPS"
+                  className="w-32 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-600 text-white outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="px-3 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
+                >
+                  Kết nối &amp; Đăng nhập VPS
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-md bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 font-bold">
+                  ✓ Đã xác thực VPS JWT • WS: {wsConnected ? "Đang mở" : "Đang nối lại"} • MQTT: {mqttDeviceStatus}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVpsToken("");
+                    if (typeof window !== "undefined") localStorage.removeItem("TOMATO_VPS_TOKEN");
+                  }}
+                  className="px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 cursor-pointer"
+                >
+                  Đổi TK VPS
+                </button>
+              </div>
+            )}
+          </form>
+        )}
       </div>
 
       {/* 3. ĐIỀU HƯỚNG TABS THEO CHUẨN HMI HIGH-PERFORMANCE */}
@@ -1189,7 +1454,7 @@ export default function Dashboard({
                     promptStartRow(id);
                   }
                 }}
-                canOperate={mode === "demo" || !!adminToken}
+                canOperate={canOperate}
               />
             </section>
 
@@ -1241,7 +1506,7 @@ export default function Dashboard({
 
                 <div className="mt-5 grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
                   <button
-                    disabled={tankOk === false || (tankOk === null && mode === "live") || busy || rows.find((r) => r.id === 1)?.valve}
+                    disabled={tankOk === false || isRemoteWaiting || busy || rows.find((r) => r.id === 1)?.valve}
                     onClick={() => promptStartRow(1)}
                     className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40"
                   >
@@ -1317,7 +1582,7 @@ export default function Dashboard({
 
                 <div className="mt-5 grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
                   <button
-                    disabled={tankOk === false || (tankOk === null && mode === "live") || busy || rows.find((r) => r.id === 2)?.valve}
+                    disabled={tankOk === false || isRemoteWaiting || busy || rows.find((r) => r.id === 2)?.valve}
                     onClick={() => promptStartRow(2)}
                     className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40"
                   >
@@ -1397,7 +1662,7 @@ export default function Dashboard({
 
                 <div className="mt-5 grid grid-cols-2 gap-2 pt-4 border-t border-slate-100">
                   <button
-                    disabled={tankOk === false || (tankOk === null && mode === "live") || busy || rows.find((r) => r.id === 3)?.valve}
+                    disabled={tankOk === false || isRemoteWaiting || busy || rows.find((r) => r.id === 3)?.valve}
                     onClick={() => promptStartRow(3)}
                     className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40"
                   >
@@ -1561,7 +1826,11 @@ export default function Dashboard({
 
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
-                    {mode === "demo" ? "Chế độ Huấn luyện mô phỏng" : "Đồng bộ từ Cloudflare D1"}
+                    {mode === "demo"
+                      ? "Chế độ Huấn luyện mô phỏng"
+                      : mode === "mqtt"
+                      ? "Đẩy tức thì qua MQTT VPS"
+                      : "Đồng bộ từ Cloudflare D1"}
                   </span>
                   <button
                     onClick={refresh}
@@ -1682,7 +1951,7 @@ export default function Dashboard({
                 promptStartRow(id);
               }
             }}
-            canOperate={mode === "demo" || !!adminToken}
+            canOperate={canOperate}
           />
         )}
 
@@ -1704,7 +1973,7 @@ export default function Dashboard({
                 promptStartRow(id);
               }
             }}
-            canOperate={mode === "demo" || !!adminToken}
+            canOperate={canOperate}
           />
         )}
 
@@ -1721,7 +1990,7 @@ export default function Dashboard({
                 setNotice("Lệnh xóa sự cố đã gửi tới bộ điều khiển.");
               }
             }}
-            canOperate={mode === "demo" || !!adminToken}
+            canOperate={canOperate}
           />
         )}
 
@@ -1740,17 +2009,26 @@ export default function Dashboard({
               </div>
 
               <button
-                disabled={mode === "demo" || !adminToken || busy}
+                disabled={mode === "demo" || (mode === "live" && !adminToken) || (mode === "mqtt" && !vpsToken) || busy}
                 onClick={async () => {
                   setBusy(true);
                   try {
-                    const r = await request<{ version: number }>(`admin/config?device_id=${query}`, {
-                      method: "PUT",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(config),
-                    });
-                    setVersion(r.version);
-                    setNotice(`Đã lưu cấu hình v${r.version} thành công! Thiết bị sẽ tải về.`);
+                    if (mode === "mqtt") {
+                      const d = await requestVps<{ mqtt_published?: boolean }>("config", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ device_id: device, config }),
+                      });
+                      setNotice(`⚡ Đã đẩy cấu hình mới qua MQTT (${d.mqtt_published ? "Thành công" : "Đã ghi nhận"})!`);
+                    } else {
+                      const r = await request<{ version: number }>(`admin/config?device_id=${query}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(config),
+                      });
+                      setVersion(r.version);
+                      setNotice(`Đã lưu cấu hình v${r.version} thành công! Thiết bị sẽ tải về.`);
+                    }
                   } catch (e) {
                     setNotice(e instanceof Error ? e.message : "Lỗi lưu cấu hình");
                   } finally {
@@ -1759,7 +2037,7 @@ export default function Dashboard({
                 }}
                 className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40"
               >
-                Lưu cấu hình lên Cloudflare
+                {mode === "mqtt" ? "Đẩy cấu hình qua MQTT" : "Lưu cấu hình lên Cloudflare"}
               </button>
             </div>
 

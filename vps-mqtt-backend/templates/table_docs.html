@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <title>Cấu trúc CSDL — Tomato IoT MQTT Backend</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; background: #f8fafc; color: #0f172a; max-width: 1000px; margin: 0 auto; }
+        table { border-collapse: collapse; margin-bottom: 28px; width: 100%; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        th, td { border: 1px solid #e2e8f0; padding: 8px 12px; text-align: left; font-size: 13px; }
+        th { background: #f1f5f9; font-weight: 700; }
+        h2 { margin-top: 32px; color: #065f46; font-size: 16px; }
+        a { color: #0284c7; text-decoration: none; font-weight: 600; }
+    </style>
+</head>
+<body>
+<p><a href="/">← Quay lại trang trạng thái</a> | <a href="/docs">Swagger API Docs</a></p>
+<h1>📊 Cấu Trúc Bảng Dữ Liệu (VPS MQTT Backend)</h1>
+
+{% for table, cols in tables.items() %}
+<h2>Bảng: <code>{{ table }}</code></h2>
+<table>
+    <tr>
+        <th>Tên cột</th>
+        <th>Kiểu dữ liệu</th>
+        <th>Nullable</th>
+        <th>Khóa chính</th>
+    </tr>
+    {% for c in cols %}
+    <tr>
+        <td><code>{{ c.column_name }}</code></td>
+        <td>{{ c.data_type }}</td>
+        <td>{{ c.is_nullable }}</td>
+        <td>{{ "PK" if c.primary_key else "" }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endfor %}
+
+<h2>🔗 Khóa Ngoại (Foreign Keys)</h2>
+<table>
+    <tr>
+        <th>Bảng</th>
+        <th>Cột</th>
+        <th>Bảng tham chiếu</th>
+        <th>Cột tham chiếu</th>
+    </tr>
+    {% for fk in fks %}
+    <tr>
+        <td>{{ fk.table_name }}</td>
+        <td>{{ fk.column_name }}</td>
+        <td>{{ fk.foreign_table }}</td>
+        <td>{{ fk.foreign_column }}</td>
+    </tr>
+    {% endfor %}
+</table>
+</body>
+</html>

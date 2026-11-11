@@ -46,3 +46,20 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Firmware secrets & build cache
+firmware/.pio/
+firmware/include/secrets.h
+.pio/
+include/secrets.h
+
+# Python / VPS MQTT backend
+vps-mqtt-backend/venv/
+vps-mqtt-backend/.venv/
+vps-mqtt-backend/__pycache__/
+vps-mqtt-backend/*.pyc
+vps-mqtt-backend/*.db
+vps-mqtt-backend/*.sqlite*
+vps-mqtt-backend/*.log
+vps-mqtt-backend/*.exe
+vps-mqtt-backend/.env
