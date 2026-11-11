@@ -966,7 +966,7 @@ export default function Dashboard({
               }`}
             >
               <Gauge className="w-4 h-4" />
-              <span>Tổng quan & Điều khiển</span>
+              <span>Tổng quan &amp; Sơ đồ 2D Vườn</span>
             </button>
 
             <button
@@ -1168,6 +1168,29 @@ export default function Dashboard({
                   <span>H3: {rows.find((r) => r.id === 3)?.daily_l.toFixed(1) || 0}L</span>
                 </div>
               </div>
+            </section>
+
+            {/* SƠ ĐỒ 2D MẶT BẰNG NHÀ MÀNG & TRỰC QUAN CẢM BIẾN CÔNG NGHỆ CAO */}
+            <section>
+              <HmiGardenMap
+                rows={rows}
+                tankOk={tankOk}
+                pumpOn={pumpOn}
+                soilMoisture={soilMoisture}
+                tempC={temp}
+                rhPct={rh}
+                vpdKpa={vpd}
+                events={events}
+                onTriggerRow={(id) => {
+                  const isValveActive = rows.find((r) => r.id === id)?.valve;
+                  if (isValveActive) {
+                    promptStopRow(id);
+                  } else {
+                    promptStartRow(id);
+                  }
+                }}
+                canOperate={mode === "demo" || !!adminToken}
+              />
             </section>
 
             {/* 3 THẺ ĐIỀU KHIỂN CHI TIẾT 3 HÀNG CÀ CHUA */}
