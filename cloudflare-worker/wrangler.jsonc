@@ -1,0 +1,13 @@
+{
+  "name": "automatic-plant-watering-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-22",
+  "account_id": "cbeaaab25a7a3e412ec59c349c3153af",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "automatic-plant-watering",
+      "database_id": "849fcdec-f331-437f-81bf-5ff46bbc005d"
+    }
+  ]
+}

@@ -34,6 +34,9 @@ yarn-error.log*
 # Checkout-local tool state
 /.wrangler/
 /.sites-runtime/
+/cloudflare-worker/.build/
+/cloudflare-worker/cloudflare-worker/.build/
+/cloudflare-worker/.wrangler/
 
 # Workspace scaffolding and publication archives
 /.agents/
