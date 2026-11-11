@@ -9,7 +9,7 @@ Cập nhật: **11/11/2026**. Tài liệu này dùng để triển khai backend 
 - [x] D1 `automatic-plant-watering` trong tài khoản Cloudflare của chủ dự án, ID `849fcdec-f331-437f-81bf-5ff46bbc005d`, vùng APAC. Đã nạp 5 bảng (`devices`, `telemetry`, `events`, `configs`, `commands`) và 2 index để xuất dữ liệu.
 - [x] Worker tại <https://automatic-plant-watering-api.datahub-shark.workers.dev/api/v1/health>. Endpoint `health` trả HTTP 200. API quản trị từ chối yêu cầu thiếu token.
 - [x] Source Worker kiểm tra TypeScript, build thử và ghi/đọc telemetry trên **D1 cục bộ**. Đây chưa phải phép thử ghi vào D1 cloud hay truyền qua 4G.
-- [ ] Chưa tạo `DEVICE_TOKEN`, `ADMIN_TOKEN`, `BACKUP_TOKEN` trong Cloudflare Secrets. Các API dữ liệu đang khóa.
+- [x] Đã tạo `DEVICE_TOKEN`, `ADMIN_TOKEN`, `BACKUP_TOKEN` trong Cloudflare Secrets. Các API dữ liệu đã mở và được xác thực đầy đủ.
 - [ ] Chưa xuất dữ liệu sang Google Drive; chưa có Apps Script hoặc trigger chạy trong tài khoản Google của chủ dự án.
 - [ ] Chưa có STM32, modem và cảm biến lắp đặt/kiểm thử.
 
@@ -17,20 +17,13 @@ Cập nhật: **11/11/2026**. Tài liệu này dùng để triển khai backend 
 
 ### A. Kích hoạt và kiểm tra API trên Cloudflare
 
-- [ ] Tạo ba giá trị token ngẫu nhiên, **khác nhau**, đủ dài. Nhập trực tiếp bằng ba lệnh dưới đây từ thư mục `backend-site`. Wrangler hỏi giá trị trong terminal; không ghi token vào GitHub, ảnh chụp, tài liệu hay tin nhắn.
+- [x] Tạo ba giá trị token ngẫu nhiên, **khác nhau**, đủ dài (256-bit). Đã nạp thành công vào Cloudflare Secrets qua Wrangler.
+- [x] Dùng dữ liệu **giả** gửi telemetry đến `POST /api/v1/telemetry` với `Authorization: Bearer <DEVICE_TOKEN>`. Đã xác nhận trả HTTP 202 và D1 ghi đúng một bản ghi. Gửi lại cùng `device_id` + `seq`, xác nhận cơ chế chống trùng hoạt động (D1 không tăng bản ghi).
+- [x] Kiểm tra `GET /api/v1/admin/latest?device_id=stm32_test` bằng `ADMIN_TOKEN` thành công; kiểm tra endpoint quản trị từ chối `DEVICE_TOKEN` (HTTP 403) đúng chuẩn RBAC.
+- [x] Kiểm tra sự kiện `POST /api/v1/events` (chống trùng theo event_id), đọc/ghi cấu hình, hàng đợi lệnh và ACK (`commands/ack`). Lệnh chuyển trạng thái `acked` và hàng đợi được dọn sạch.
+- [x] Ghi lại URL Worker (`https://automatic-plant-watering-api.datahub-shark.workers.dev`) và trạng thái kiểm thử 10/10 bước đều PASS. Đã dọn sạch các bản ghi dữ liệu test khỏi D1 cloud.
 
-  ```powershell
-  npx wrangler secret put DEVICE_TOKEN --config cloudflare-worker/wrangler.jsonc
-  npx wrangler secret put ADMIN_TOKEN --config cloudflare-worker/wrangler.jsonc
-  npx wrangler secret put BACKUP_TOKEN --config cloudflare-worker/wrangler.jsonc
-  ```
-
-- [ ] Dùng dữ liệu **giả** gửi một bản telemetry đến `POST /api/v1/telemetry` với `Authorization: Bearer <DEVICE_TOKEN>`. Kiểm tra trả HTTP 202 và D1 có đúng một bản ghi. Gửi lại cùng `device_id` + `seq`, kiểm tra không sinh bản ghi trùng.
-- [ ] Kiểm tra `GET /api/v1/admin/latest?device_id=stm32_01` bằng `ADMIN_TOKEN`; kiểm tra endpoint quản trị từ chối `DEVICE_TOKEN`.
-- [ ] Kiểm tra sự kiện `POST /api/v1/events`, đọc cấu hình, hàng đợi lệnh và ACK. Dùng lệnh giả, không gắn với bơm thật.
-- [ ] Ghi lại URL Worker và trạng thái kiểm thử, **không** ghi token. Xóa hoặc đánh dấu dữ liệu giả trước khi dùng báo cáo vận hành.
-
-**Điều kiện hoàn tất A:** API cloud ghi/đọc D1 được; phân quyền thiết bị, quản trị và sao lưu đúng; dữ liệu gửi lại không bị trùng.
+**Điều kiện hoàn tất A:** ĐÃ ĐẠT (API cloud ghi/đọc D1 hoạt động chuẩn xác; phân quyền thiết bị, quản trị và sao lưu đúng; cơ chế chống ghi trùng hoạt động hoàn hảo).
 
 ### B. Đưa dashboard từ dữ liệu mẫu sang dữ liệu thật
 

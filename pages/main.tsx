@@ -5,10 +5,6 @@ import "../app/globals.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Dashboard
-      userName="Bản xem mẫu"
-      signOutPath="https://tuoi-ca-chua-3-hang.promisinghill1.chatgpt.site/"
-      staticMode
-    />
+    <Dashboard userName="Công nhân Vận hành" />
   </React.StrictMode>,
 );
