@@ -9,6 +9,8 @@ import {
   Cpu,
   Droplets,
   ExternalLink,
+  Eye,
+  EyeOff,
   Gauge,
   HelpCircle,
   Info,
@@ -43,6 +45,153 @@ export interface HmiGardenMapProps {
   compact?: boolean;
 }
 
+// =========================================================================
+// THƯ VIỆN COMPONENT: MỐC VỊ TRÍ PHONG CÁCH THINGSBOARD CLOUD (MAP PIN)
+// Có đĩa biểu tượng, thẻ tên Pill và huy hiệu lỗi (x) ở góc dưới bên phải
+// =========================================================================
+interface ThingsBoardPinProps {
+  x: number;
+  y: number;
+  title: string;
+  isFault?: boolean;
+  isWarning?: boolean;
+  iconType?: "tank" | "pump" | "valve" | "soil" | "weather" | "controller";
+  visible?: boolean;
+  onClick?: () => void;
+}
+
+function ThingsBoardPin({
+  x,
+  y,
+  title,
+  isFault = false,
+  isWarning = false,
+  iconType = "tank",
+  visible = true,
+  onClick,
+}: ThingsBoardPinProps) {
+  if (!visible) return null;
+
+  const pillWidth = Math.max(78, title.length * 6.5 + 24);
+  const pillHeight = 22;
+  const pinColor = isFault ? "#dc2626" : isWarning ? "#d97706" : "#0284c7";
+  const pillBg = isFault ? "#dc2626" : isWarning ? "#fffbeb" : "#ffffff";
+  const pillBorder = isFault ? "#ffffff" : isWarning ? "#d97706" : "#0284c7";
+  const pillText = isFault ? "#ffffff" : isWarning ? "#b45309" : "#0f172a";
+
+  return (
+    <g
+      transform={`translate(${x}, ${y})`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      className={`cursor-pointer select-none transition-transform hover:scale-110 ${
+        isFault ? "anim-pin-fault" : ""
+      }`}
+    >
+      {/* Vòng tiếp xúc mặt đất và vòng lan tỏa khi có sự cố */}
+      <ellipse
+        cx="0"
+        cy="0"
+        rx="10"
+        ry="4"
+        fill={isFault ? "#dc2626" : "#334155"}
+        opacity={isFault ? "0.85" : "0.35"}
+      />
+      {isFault && (
+        <ellipse
+          cx="0"
+          cy="0"
+          rx="18"
+          ry="6"
+          fill="none"
+          stroke="#ef4444"
+          strokeWidth="2.5"
+          className="anim-pin-ripple"
+        />
+      )}
+
+      {/* Thẻ Tên Nổi (Floating Pill Badge như Silo A, Silo B, Silo C) */}
+      <g transform="translate(0, -42)">
+        <rect
+          x={-pillWidth / 2}
+          y={-pillHeight / 2}
+          width={pillWidth}
+          height={pillHeight}
+          rx={pillHeight / 2}
+          fill={pillBg}
+          stroke={pillBorder}
+          strokeWidth={isFault ? 2 : 1.5}
+          filter="drop-shadow(0 3px 6px rgba(0,0,0,0.22))"
+        />
+        <text
+          x="0"
+          y="4"
+          textAnchor="middle"
+          fill={pillText}
+          fontSize="9.5"
+          fontWeight="800"
+          letterSpacing="0.2"
+        >
+          {title}
+        </text>
+      </g>
+
+      {/* Mốc Vị Trí Hình Giọt Nước (Teardrop Pin) */}
+      <g transform="translate(0, -6)">
+        <path
+          d="M 0 6 C -4 2 -13 -6 -13 -15 C -13 -23 -7 -28 0 -28 C 7 -28 13 -23 13 -15 C 13 -6 4 2 0 6 Z"
+          fill={pinColor}
+          stroke="#ffffff"
+          strokeWidth="2"
+          filter="drop-shadow(0 4px 6px rgba(0,0,0,0.35))"
+        />
+        {/* Vòng tròn trắng bên trong tâm ghim */}
+        <circle cx="0" cy="-15" r="7" fill="#ffffff" />
+
+        {/* Biểu tượng thiết bị bên trong tâm ghim */}
+        {iconType === "tank" && (
+          <rect x="-3" y="-18" width="6" height="6" rx="1.5" fill={pinColor} />
+        )}
+        {iconType === "pump" && (
+          <circle cx="0" cy="-15" r="3.2" fill={pinColor} />
+        )}
+        {iconType === "valve" && (
+          <polygon points="-3.5,-18 3.5,-18 0,-15 -3.5,-12 3.5,-12 0,-15" fill={pinColor} />
+        )}
+        {iconType === "soil" && (
+          <path d="M 0 -19 L -3.5 -13 L 3.5 -13 Z" fill={pinColor} />
+        )}
+        {iconType === "weather" && (
+          <circle cx="0" cy="-15" r="2.8" fill={pinColor} />
+        )}
+        {iconType === "controller" && (
+          <rect x="-3.5" y="-18.5" width="7" height="7" rx="1" fill={pinColor} />
+        )}
+
+        {/* Huy hiệu nhỏ ở góc dưới bên phải ghim (Corner Badge giống ThingsBoard) */}
+        {isFault ? (
+          <g transform="translate(8.5, -9.5)">
+            <circle cx="0" cy="0" r="5" fill="#ef4444" stroke="#ffffff" strokeWidth="1.2" />
+            <text x="0" y="2.5" textAnchor="middle" fill="#ffffff" fontSize="7.5" fontWeight="black">✕</text>
+          </g>
+        ) : isWarning ? (
+          <g transform="translate(8.5, -9.5)">
+            <circle cx="0" cy="0" r="5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.2" />
+            <text x="0" y="2.8" textAnchor="middle" fill="#ffffff" fontSize="7.5" fontWeight="black">!</text>
+          </g>
+        ) : (
+          <g transform="translate(8.5, -9.5)">
+            <circle cx="0" cy="0" r="4" fill="#10b981" stroke="#ffffff" strokeWidth="1" />
+            <text x="0" y="2" textAnchor="middle" fill="#ffffff" fontSize="6.5" fontWeight="bold">✓</text>
+          </g>
+        )}
+      </g>
+    </g>
+  );
+}
+
 export default function HmiGardenMap({
   rows,
   tankOk,
@@ -59,9 +208,15 @@ export default function HmiGardenMap({
   // Đối tượng đang được chọn để xem chi tiết / SOP
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
 
-  // Phân tích trạng thái lỗi
-  const isTankEmpty = tankOk === false;
-  const isTankWaiting = tankOk === null;
+  // Chế độ hiển thị ghim mốc vị trí
+  const [showAllPins, setShowAllPins] = useState<boolean>(true);
+
+  // Bộ điều khiển thử nghiệm lỗi mô phỏng (Demo Test Trực Quan)
+  const [simTestFault, setSimTestFault] = useState<"none" | "tank" | "noflow_h1" | "drought_s1" | "leak_h2">("none");
+
+  // Phân tích trạng thái có kèm chế độ thử nghiệm
+  const isTankEmpty = simTestFault === "tank" ? true : tankOk === false;
+  const isTankWaiting = simTestFault === "tank" ? false : tankOk === null;
 
   const row1 = rows.find((r) => r.id === 1);
   const row2 = rows.find((r) => r.id === 2);
@@ -75,19 +230,19 @@ export default function HmiGardenMap({
   const row2DailyL = row2?.daily_l ?? 0;
   const row3DailyL = row3?.daily_l ?? 0;
 
-  // Lỗi từ các sự kiện gần nhất
+  // Lỗi từ các sự kiện gần nhất hoặc từ nút thử nghiệm
   const recentEvents = events.slice(0, 15);
-  const hasNoFlowH1 = recentEvents.some((e) => e.row === 1 && e.type === "ERROR_NO_FLOW");
+  const hasNoFlowH1 = simTestFault === "noflow_h1" || recentEvents.some((e) => e.row === 1 && e.type === "ERROR_NO_FLOW");
   const hasLeakH1 = recentEvents.some((e) => e.row === 1 && e.type === "ERROR_VALVE_LEAK");
 
   const hasNoFlowH2 = recentEvents.some((e) => e.row === 2 && e.type === "ERROR_NO_FLOW");
-  const hasLeakH2 = recentEvents.some((e) => e.row === 2 && e.type === "ERROR_VALVE_LEAK");
+  const hasLeakH2 = simTestFault === "leak_h2" || recentEvents.some((e) => e.row === 2 && e.type === "ERROR_VALVE_LEAK");
 
   const hasNoFlowH3 = recentEvents.some((e) => e.row === 3 && e.type === "ERROR_NO_FLOW");
   const hasLeakH3 = recentEvents.some((e) => e.row === 3 && e.type === "ERROR_VALVE_LEAK");
 
-  // Độ ẩm 4 cảm biến đất
-  const s1 = soilMoisture[0];
+  // Độ ẩm 4 cảm biến đất (có tính đến thử nghiệm khô hạn)
+  const s1 = simTestFault === "drought_s1" ? 18.5 : soilMoisture[0];
   const s2 = soilMoisture[1];
   const s3 = soilMoisture[2];
   const s4 = soilMoisture[3];
@@ -197,7 +352,7 @@ export default function HmiGardenMap({
       <div
         className={`p-3.5 sm:p-4 rounded-2xl border transition-all ${
           activeFaults.length > 0
-            ? "bg-red-50/90 border-red-300 shadow-md ring-1 ring-red-400"
+            ? "bg-red-50/95 border-red-300 shadow-md ring-1 ring-red-400"
             : "bg-emerald-50/70 border-emerald-200/90 shadow-sm"
         }`}
       >
@@ -218,15 +373,15 @@ export default function HmiGardenMap({
                   }`}
                 >
                   {activeFaults.length > 0
-                    ? `PHÁT HIỆN ${activeFaults.length} SỰ CỐ CẦN XỬ LÝ TRÊN SƠ ĐỒ VƯỜN`
-                    : "TOÀN BỘ 12 CHẬU CÀ CHUA & HỆ THỐNG ĐANG HOẠT ĐỘNG TỐT"}
+                    ? `PHÁT HIỆN ${activeFaults.length} SỰ CỐ: MỐC VỊ TRÍ ĐỎ (PIN) ĐÃ NỔI BẬT TRÊN SƠ ĐỒ`
+                    : "TOÀN BỘ 12 CHẬU CÀ CHUA & THIẾT BỊ ĐANG HOẠT ĐỘNG AN TOÀN"}
                 </h3>
                 <span
                   className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
                     activeFaults.length > 0 ? "bg-red-200 text-red-800" : "bg-emerald-200 text-emerald-800"
                   }`}
                 >
-                  {activeFaults.length > 0 ? "Cần kiểm tra" : "Hoạt động chuẩn"}
+                  {activeFaults.length > 0 ? "Báo động sự cố" : "Bình thường"}
                 </span>
               </div>
               <p
@@ -235,17 +390,78 @@ export default function HmiGardenMap({
                 }`}
               >
                 {activeFaults.length > 0
-                  ? "Quan sát hình khối nhấp nháy đỏ trên sơ đồ và bấm vào thiết bị để xem hướng dẫn xử lý chuẩn."
-                  : "Bồn nước đầy, bơm 12V sẵn sàng, 3 van điện từ & 4 cảm biến độ ẩm đất đang truyền số liệu ổn định."}
+                  ? "Quan sát các mốc vị trí màu đỏ nhấp nháy (kèm biểu tượng ✕) trên sơ đồ bên dưới và nhấp chuột để xem giải pháp."
+                  : "Mực nước bồn, áp lực bơm, 3 van điện từ và 4 cảm biến đất đang hoạt động theo đúng chu trình tự động."}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-semibold">
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 shadow-2xs">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-              Sơ đồ thời gian thực (60 FPS)
-            </span>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <button
+              onClick={() => setShowAllPins(!showAllPins)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 shadow-2xs hover:bg-slate-50 transition-all cursor-pointer"
+            >
+              {showAllPins ? <EyeOff className="w-3.5 h-3.5 text-slate-500" /> : <Eye className="w-3.5 h-3.5 text-emerald-600" />}
+              <span>{showAllPins ? "Ẩn mốc bình thường" : "Hiện tất cả mốc (Pins)"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* BẢNG ĐIỀU KHIỂN THỬ NGHIỆM MÔ PHỎNG (TEST SIMULATION BUTTONS) */}
+        <div className="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-1.5 text-slate-600 font-bold">
+            <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Thử mô phỏng sự cố (Test mốc vị trí đỏ):</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setSimTestFault(simTestFault === "tank" ? "none" : "tank")}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                simTestFault === "tank"
+                  ? "bg-red-600 text-white shadow-xs"
+                  : "bg-white border border-red-200 text-red-700 hover:bg-red-50"
+              }`}
+            >
+              🚨 Thử Cạn Bồn
+            </button>
+            <button
+              onClick={() => setSimTestFault(simTestFault === "noflow_h1" ? "none" : "noflow_h1")}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                simTestFault === "noflow_h1"
+                  ? "bg-red-600 text-white shadow-xs"
+                  : "bg-white border border-red-200 text-red-700 hover:bg-red-50"
+              }`}
+            >
+              🚨 Thử Mất Dòng Van 1
+            </button>
+            <button
+              onClick={() => setSimTestFault(simTestFault === "drought_s1" ? "none" : "drought_s1")}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                simTestFault === "drought_s1"
+                  ? "bg-red-600 text-white shadow-xs"
+                  : "bg-white border border-red-200 text-red-700 hover:bg-red-50"
+              }`}
+            >
+              🚨 Thử Đất Khô S1
+            </button>
+            <button
+              onClick={() => setSimTestFault(simTestFault === "leak_h2" ? "none" : "leak_h2")}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                simTestFault === "leak_h2"
+                  ? "bg-amber-600 text-white shadow-xs"
+                  : "bg-white border border-amber-200 text-amber-800 hover:bg-amber-50"
+              }`}
+            >
+              ⚠️ Thử Rò Rỉ Van 2
+            </button>
+            {simTestFault !== "none" && (
+              <button
+                onClick={() => setSimTestFault("none")}
+                className="px-2.5 py-1 rounded-lg font-bold text-[11px] bg-slate-900 text-white hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                ✓ Xóa Thử Nghiệm
+              </button>
+            )}
           </div>
         </div>
 
@@ -272,36 +488,36 @@ export default function HmiGardenMap({
         )}
       </div>
 
-      {/* 2. KHUNG ĐỒ HỌA 2D NHÀ MÀNG & HỆ THỐNG CẢM BIẾN - THIẾT KẾ CÔNG NGHIỆP CÓ ANIMATION */}
+      {/* 2. KHUNG ĐỒ HỌA 2D NHÀ MÀNG & HỆ THỐNG CẢM BIẾN - KÈM MỐC VỊ TRÍ THINGSBOARD CLOUD PIN */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2">
               <span className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs">
-                🌿
+                📍
               </span>
               <h3 className="text-sm sm:text-base font-bold text-slate-800">
-                Sơ Đồ Không Gian 2D Nhà Màng &amp; Vị Trí Cảm Biến Thực Tế
+                Sơ Đồ 2D Vườn Cà Chua 12 Chậu &amp; Mốc Vị Trí Sự Cố Trực Quan
               </h3>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Mô phỏng mặt bằng 12 chậu: 4 Cảm biến đất điện dung (S1-S4), 3 Lưu lượng kế YF-S201, 3 Van điện từ 12V, Trạm SHT31 &amp; Phao bồn.
+              Phong cách ThingsBoard: Khi có sự cố, mốc vị trí màu đỏ nhấp nháy nổi bật lên tại đúng vị trí thiết bị lỗi kèm biểu tượng ✕.
             </p>
           </div>
 
           {/* Chú giải trạng thái */}
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Đang tưới (Dòng chảy)
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Đang tưới
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span> Đang nghỉ
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span> Báo sự cố
+              <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span> Mốc Sự cố (✕)
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Đất khô hạn
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Cảnh báo (!)
             </span>
           </div>
         </div>
@@ -309,7 +525,7 @@ export default function HmiGardenMap({
         {/* Khung bản đồ SVG Responsive */}
         <div className="w-full overflow-x-auto bg-slate-900/5 rounded-2xl border border-slate-200/90 p-2 sm:p-3">
           <svg
-            viewBox="0 0 1020 560"
+            viewBox="0 0 1020 570"
             className="w-full h-auto max-w-full drop-shadow-xs select-none"
             role="img"
             aria-label="Sơ đồ 2D trực quan hệ thống tưới và cảm biến nhà màng"
@@ -353,6 +569,14 @@ export default function HmiGardenMap({
                     0%, 100% { filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.5)); stroke: #ef4444; }
                     50% { filter: drop-shadow(0 0 9px rgba(239, 68, 68, 0.9)); stroke: #b91c1c; }
                   }
+                  @keyframes hmiPinBounce {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-8px); }
+                  }
+                  @keyframes hmiPinRipple {
+                    0% { transform: scale(0.6); opacity: 0.9; }
+                    100% { transform: scale(2.2); opacity: 0; }
+                  }
                   .anim-flow-water {
                     stroke-dasharray: 8 6;
                     animation: hmiFlowWater 0.75s linear infinite;
@@ -382,6 +606,14 @@ export default function HmiGardenMap({
                   .anim-fault-glow {
                     animation: hmiFaultGlow 1.2s ease-in-out infinite;
                   }
+                  .anim-pin-fault {
+                    animation: hmiPinBounce 1.3s ease-in-out infinite;
+                  }
+                  .anim-pin-ripple {
+                    transform-box: fill-box;
+                    transform-origin: center;
+                    animation: hmiPinRipple 1.3s ease-out infinite;
+                  }
                 `}
               </style>
 
@@ -410,16 +642,16 @@ export default function HmiGardenMap({
             </defs>
 
             {/* 1. NỀN NHÀ MÀNG & ĐƯỜNG GIẰNG KẾT CẤU */}
-            <rect x="10" y="10" width="1000" height="540" rx="16" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="2" />
-            <rect x="18" y="18" width="984" height="524" rx="12" fill="#ffffff" stroke="#e2e8f0" strokeWidth="1" />
+            <rect x="10" y="10" width="1000" height="550" rx="16" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="2" />
+            <rect x="18" y="18" width="984" height="534" rx="12" fill="#ffffff" stroke="#e2e8f0" strokeWidth="1" />
 
             {/* Các vòm khung thép nhà màng */}
             {[260, 440, 620, 800].map((gx) => (
-              <line key={gx} x1={gx} y1="20" x2={gx} y2="540" stroke="#f1f5f9" strokeWidth="2" strokeDasharray="6 6" />
+              <line key={gx} x1={gx} y1="20" x2={gx} y2="550" stroke="#f1f5f9" strokeWidth="2" strokeDasharray="6 6" />
             ))}
 
             {/* Vách phân chia khu kỹ thuật & luống cây */}
-            <line x1="250" y1="20" x2="250" y2="540" stroke="#e2e8f0" strokeWidth="2" strokeDasharray="4 4" />
+            <line x1="250" y1="20" x2="250" y2="550" stroke="#e2e8f0" strokeWidth="2" strokeDasharray="4 4" />
 
             {/* Tiêu đề hai khu vực */}
             <text x="32" y="42" fill="#64748b" fontSize="11" fontWeight="800" letterSpacing="1">
@@ -441,7 +673,6 @@ export default function HmiGardenMap({
               }`}
               transform="translate(25, 60)"
             >
-              {/* Thân bồn */}
               <rect
                 x="0"
                 y="0"
@@ -452,10 +683,9 @@ export default function HmiGardenMap({
                 stroke={isTankEmpty ? "#dc2626" : isTankWaiting ? "#94a3b8" : "#0284c7"}
                 strokeWidth={isTankEmpty ? 3 : 1.5}
               />
-              {/* Nắp bồn */}
               <rect x="75" y="-8" width="50" height="8" rx="3" fill="#64748b" />
 
-              {/* Vạch đo mức nước dung tích */}
+              {/* Vạch đo mức nước */}
               <g transform="translate(14, 25)">
                 <line x1="0" y1="0" x2="8" y2="0" stroke="#94a3b8" strokeWidth="1" />
                 <text x="12" y="3" fill="#94a3b8" fontSize="8" fontWeight="bold">100L</text>
@@ -477,7 +707,6 @@ export default function HmiGardenMap({
                     fill={isTankEmpty ? "#ef4444" : isTankWaiting ? "#94a3b8" : "url(#tankWaterGrad)"}
                     opacity="0.85"
                   />
-                  {/* Sóng nước dao động */}
                   <path
                     d={
                       isTankEmpty
@@ -489,9 +718,8 @@ export default function HmiGardenMap({
                   />
                 </g>
 
-                {/* Phao điện từ cơ học (Float Switch) */}
+                {/* Phao từ cơ học */}
                 <line x1="52" y1="6" x2="52" y2="66" stroke="#475569" strokeWidth="2" strokeDasharray="1 2" />
-                {/* Vòng phao từ nổi/chìm */}
                 <rect
                   x="44"
                   y={isTankEmpty ? 54 : 10}
@@ -505,7 +733,6 @@ export default function HmiGardenMap({
                 />
               </g>
 
-              {/* Thông tin chữ bồn nước */}
               <text x="120" y="32" fill="#1e293b" fontSize="11" fontWeight="bold">
                 BỒN NƯỚC 100L
               </text>
@@ -535,7 +762,7 @@ export default function HmiGardenMap({
               </text>
             </g>
 
-            {/* 2. BƠM TĂNG ÁP 12V DC VỚI CÁNH QUẠT QUAY & SÓNG ÁP LỰC */}
+            {/* 2. BƠM TĂNG ÁP 12V DC */}
             <g
               onClick={() => setSelectedZone("pump")}
               className="cursor-pointer transition-transform hover:scale-101"
@@ -551,16 +778,12 @@ export default function HmiGardenMap({
                 stroke={pumpOn ? "#10b981" : "#cbd5e1"}
                 strokeWidth={pumpOn ? 2.5 : 1.5}
               />
-              {/* Hình khối động cơ bơm */}
               <g transform="translate(14, 16)">
-                {/* Thân vỏ động cơ có khía tản nhiệt */}
                 <rect x="0" y="4" width="34" height="42" rx="4" fill="#334155" stroke="#1e293b" strokeWidth="1" />
                 <line x1="8" y1="4" x2="8" y2="46" stroke="#475569" strokeWidth="1" />
                 <line x1="17" y1="4" x2="17" y2="46" stroke="#475569" strokeWidth="1" />
                 <line x1="26" y1="4" x2="26" y2="46" stroke="#475569" strokeWidth="1" />
-                {/* Đầu buồng bơm tăng áp (Diaphragm head) */}
                 <rect x="34" y="10" width="22" height="30" rx="3" fill="#64748b" stroke="#334155" strokeWidth="1" />
-                {/* Cánh quạt tản nhiệt quay khi bơm chạy */}
                 <circle cx="17" cy="25" r="10" fill={pumpOn ? "#10b981" : "#475569"} opacity="0.9" />
                 <g className={pumpOn ? "anim-spin-fast" : ""} transform="translate(17, 25)">
                   <line x1="-8" y1="0" x2="8" y2="0" stroke="#ffffff" strokeWidth="2" />
@@ -570,15 +793,12 @@ export default function HmiGardenMap({
                 </g>
               </g>
 
-              {/* Thông tin chữ máy bơm */}
               <text x="80" y="32" fill="#1e293b" fontSize="11" fontWeight="bold">
                 BƠM TĂNG ÁP 12V
               </text>
               <text x="80" y="46" fill="#64748b" fontSize="9">
                 Diaphragm • Áp lực 0.48MPa
               </text>
-
-              {/* Nút trạng thái ON/OFF */}
               <rect
                 x="80"
                 y="52"
@@ -601,7 +821,7 @@ export default function HmiGardenMap({
               </text>
             </g>
 
-            {/* 3. TỦ ĐIỀU KHIỂN TRUNG TÂM IOT (ESP32-S3 + A7672X 4G + RTC DS3231) */}
+            {/* 3. TỦ ĐIỀU KHIỂN TRUNG TÂM IOT */}
             <g
               onClick={() => setSelectedZone("controller")}
               className="cursor-pointer transition-transform hover:scale-101"
@@ -617,7 +837,6 @@ export default function HmiGardenMap({
                 stroke="#475569"
                 strokeWidth="1.5"
               />
-              {/* Tiêu đề tủ */}
               <text x="14" y="24" fill="#1e293b" fontSize="11" fontWeight="bold">
                 TỦ ĐIỀU KHIỂN IOT TRUNG TÂM
               </text>
@@ -625,25 +844,21 @@ export default function HmiGardenMap({
                 ESP32-S3 Dual-Core • Nguồn 12V/5V
               </text>
 
-              {/* Mô phỏng chip vi điều khiển ESP32-S3 */}
               <g transform="translate(14, 46)">
                 <rect x="0" y="0" width="45" height="34" rx="4" fill="#1e293b" stroke="#0ea5e9" strokeWidth="1" />
                 <text x="22" y="15" textAnchor="middle" fill="#38bdf8" fontSize="7" fontWeight="bold">ESP32-S3</text>
                 <text x="22" y="26" textAnchor="middle" fill="#94a3b8" fontSize="6 font-mono">240MHz</text>
               </g>
 
-              {/* Mô phỏng modem 4G LTE A7672X và Ăng-ten phát sóng */}
               <g transform="translate(68, 46)">
                 <rect x="0" y="0" width="48" height="34" rx="4" fill="#334155" stroke="#f59e0b" strokeWidth="1" />
                 <text x="24" y="15" textAnchor="middle" fill="#fde047" fontSize="7" fontWeight="bold">A7672X</text>
                 <text x="24" y="26" textAnchor="middle" fill="#cbd5e1" fontSize="6 font-mono">4G LTE CAT1</text>
               </g>
 
-              {/* Ăng-ten ngoài với vòng sóng vô tuyến */}
               <g transform="translate(130, 48)">
                 <line x1="10" y1="30" x2="10" y2="2" stroke="#0f172a" strokeWidth="2.5" />
                 <circle cx="10" cy="2" r="3" fill="#0284c7" />
-                {/* Sóng vô tuyến truyền phát */}
                 <path
                   d="M 4 -3 A 8 8 0 0 1 16 -3"
                   fill="none"
@@ -660,17 +875,13 @@ export default function HmiGardenMap({
                 />
               </g>
 
-              {/* 4 Đèn LED chẩn đoán công nghiệp */}
               <g transform="translate(14, 92)">
                 <circle cx="8" cy="8" r="4" fill="#22c55e" />
                 <text x="16" y="11" fill="#475569" fontSize="7.5" fontWeight="bold">PWR</text>
-
                 <circle cx="56" cy="8" r="4" fill="#0284c7" className="animate-ping" />
                 <text x="64" y="11" fill="#475569" fontSize="7.5" fontWeight="bold">4G</text>
-
                 <circle cx="104" cy="8" r="4" fill="#06b6d4" />
                 <text x="112" y="11" fill="#475569" fontSize="7.5" fontWeight="bold">D1</text>
-
                 <circle cx="150" cy="8" r="4" fill={activeFaults.length > 0 ? "#ef4444" : "#cbd5e1"} />
                 <text x="158" y="11" fill={activeFaults.length > 0 ? "#dc2626" : "#94a3b8"} fontSize="7.5" fontWeight="bold">
                   ALM
@@ -682,7 +893,7 @@ export default function HmiGardenMap({
               </text>
             </g>
 
-            {/* 4. TRẠM THỜI TIẾT VI KHÍ HẬU SHT31 VỚI CHỈ SỐ VPD */}
+            {/* 4. TRẠM THỜI TIẾT VI KHÍ HẬU SHT31 */}
             <g
               onClick={() => setSelectedZone("weather")}
               className="cursor-pointer transition-transform hover:scale-101"
@@ -698,14 +909,12 @@ export default function HmiGardenMap({
                 stroke="#0d9488"
                 strokeWidth="1.5"
               />
-              {/* Hộp che chắn bức xạ mặt trời (Louvered Stevenson Screen) */}
               <g transform="translate(14, 16)">
                 <rect x="0" y="0" width="36" height="50" rx="3" fill="#ffffff" stroke="#94a3b8" strokeWidth="1" />
                 <line x1="4" y1="10" x2="32" y2="10" stroke="#cbd5e1" strokeWidth="2" />
                 <line x1="4" y1="20" x2="32" y2="20" stroke="#cbd5e1" strokeWidth="2" />
                 <line x1="4" y1="30" x2="32" y2="30" stroke="#cbd5e1" strokeWidth="2" />
                 <line x1="4" y1="40" x2="32" y2="40" stroke="#cbd5e1" strokeWidth="2" />
-                {/* Cảm biến SHT31 bên trong */}
                 <circle cx="18" cy="25" r="4" fill="#0d9488" />
               </g>
 
@@ -718,8 +927,6 @@ export default function HmiGardenMap({
               <text x="60" y="68" fill="#134e4a" fontSize="10" fontWeight="bold">
                 VPD: {vpdKpa != null ? `${vpdKpa.toFixed(2)} kPa` : "—"}
               </text>
-
-              {/* Huy hiệu đánh giá khí hậu */}
               <rect
                 x="14"
                 y="80"
@@ -741,10 +948,9 @@ export default function HmiGardenMap({
             </g>
 
             {/* ========================================================================= */}
-            {/* ĐƯỜNG ỐNG NƯỚC CHÍNH PE16 & DÒNG CHẢY ANIMATION                           */}
+            {/* ĐƯỜNG ỐNG NƯỚC CHÍNH PE16                                                 */}
             {/* ========================================================================= */}
 
-            {/* Ống từ bồn xuống máy bơm */}
             <line
               x1="125"
               y1="165"
@@ -755,7 +961,6 @@ export default function HmiGardenMap({
               strokeLinecap="round"
             />
 
-            {/* Trục ống chính PE16 từ bơm sang chia 3 hàng cà chua */}
             <path
               d="M 225 222 L 260 222 L 260 115 L 290 115 M 260 222 L 290 265 M 260 222 L 260 415 L 290 415"
               fill="none"
@@ -767,16 +972,15 @@ export default function HmiGardenMap({
             />
 
             {/* ========================================================================= */}
-            {/* 3 HÀNG CÀ CHUA (BÊN PHẢI: x: 280 -> 990)                                  */}
+            {/* 3 HÀNG CÀ CHUA (BÊN PHẢI)                                                  */}
             {/* ========================================================================= */}
 
-            {/* ==================== HÀNG 1: HẸN GIỜ CỐ ĐỊNH ==================== */}
+            {/* HÀNG 1 */}
             <g
               onClick={() => setSelectedZone("row1")}
               className="cursor-pointer"
               transform="translate(280, 55)"
             >
-              {/* Thân luống hàng 1 */}
               <rect
                 x="0"
                 y="0"
@@ -787,14 +991,11 @@ export default function HmiGardenMap({
                 stroke={hasNoFlowH1 || hasLeakH1 ? "#ef4444" : row1Valve ? "#10b981" : "#e2e8f0"}
                 strokeWidth={hasNoFlowH1 || hasLeakH1 ? 2.5 : row1Valve ? 2 : 1}
               />
-              {/* Tiêu đề Hàng 1 */}
               <rect x="14" y="10" width="30" height="20" rx="6" fill="#d97706" />
               <text x="29" y="24" textAnchor="middle" fill="#ffffff" fontSize="10" fontWeight="bold">H1</text>
               <text x="52" y="24" fill="#1e293b" fontSize="11.5" fontWeight="bold">
                 HÀNG 1 — Hẹn Giờ Cố Định (06:00 &amp; 17:00) • Hôm nay: {row1DailyL.toFixed(2)}L
               </text>
-
-              {/* Tag trạng thái van hàng 1 */}
               <rect
                 x="545"
                 y="10"
@@ -817,11 +1018,9 @@ export default function HmiGardenMap({
                 {row1Valve ? "VAN ĐANG MỞ (TƯỚI)" : "VAN ĐANG ĐÓNG"}
               </text>
 
-              {/* KHỐI 1: VAN ĐIỆN TỪ SOLENOID 12V NC */}
+              {/* Van 1 Solenoid */}
               <g transform="translate(14, 46)">
-                {/* Thân van đồng thau */}
                 <rect x="0" y="8" width="40" height="26" rx="4" fill="#b45309" stroke="#78350f" strokeWidth="1" />
-                {/* Cuộn coil điện từ phía trên */}
                 <rect
                   x="8"
                   y="0"
@@ -833,34 +1032,24 @@ export default function HmiGardenMap({
                   strokeWidth="1"
                   className={row1Valve ? "animate-pulse" : ""}
                 />
-                <text x="20" y="24" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">
-                  VAN 1
-                </text>
-                <text x="20" y="44" textAnchor="middle" fill="#64748b" fontSize="7">
-                  Solenoid
-                </text>
+                <text x="20" y="24" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">VAN 1</text>
+                <text x="20" y="44" textAnchor="middle" fill="#64748b" fontSize="7">Solenoid</text>
               </g>
 
-              {/* KHỐI 2: CẢM BIẾN LƯU LƯỢNG YF-S201 (FLOW METER HALL) */}
+              {/* YF-S201 Hàng 1 */}
               <g transform="translate(68, 46)">
-                {/* Thân vỏ cảm biến lưu lượng đen */}
                 <rect x="0" y="6" width="46" height="30" rx="6" fill="#1e293b" stroke="#0284c7" strokeWidth="1" />
-                {/* Vòng buồng tuabin cánh quạt trong suốt */}
                 <circle cx="23" cy="21" r="10" fill="#0369a1" />
-                {/* Cánh quạt tuabin quay khi có dòng chảy */}
                 <g className={row1Valve ? "anim-spin-fast" : ""} transform="translate(23, 21)">
                   <line x1="-7" y1="0" x2="7" y2="0" stroke="#ffffff" strokeWidth="2" />
                   <line x1="0" y1="-7" x2="0" y2="7" stroke="#ffffff" strokeWidth="2" />
                   <circle cx="0" cy="0" r="2.5" fill="#eab308" />
                 </g>
-                {/* Đèn báo xung Hall sensor */}
                 <circle cx="39" cy="11" r="2.5" fill="#eab308" className={row1Valve ? "animate-ping" : ""} />
-                <text x="23" y="44" textAnchor="middle" fill="#0284c7" fontSize="7 font-mono font-bold">
-                  YF-S201
-                </text>
+                <text x="23" y="44" textAnchor="middle" fill="#0284c7" fontSize="7 font-mono font-bold">YF-S201</text>
               </g>
 
-              {/* Đường ống nhánh PE16 cấp nước vào 4 chậu */}
+              {/* Đường ống nhánh */}
               <line
                 x1="120"
                 y1="67"
@@ -871,31 +1060,25 @@ export default function HmiGardenMap({
                 className={row1Valve ? "anim-flow-water" : ""}
               />
 
-              {/* 4 Chậu cà chua hàng 1 (C1, C2, C3, C4) */}
+              {/* 4 Chậu cà chua hàng 1 */}
               {[1, 2, 3, 4].map((potNum, i) => {
                 const px = 175 + i * 135;
                 return (
                   <g key={potNum} transform={`translate(${px}, 42)`}>
-                    {/* Béc tưới nhỏ giọt & Ống PE 4mm */}
                     <line x1="25" y1="25" x2="25" y2="38" stroke={row1Valve ? "#0284c7" : "#94a3b8"} strokeWidth="2" />
-                    {/* Animation giọt nước tí tách rơi khi tưới */}
                     {row1Valve && (
                       <g>
                         <circle cx="25" cy="40" r="2.5" fill="#38bdf8" className="anim-drip-water" />
                         <circle cx="25" cy="56" r="3" fill="none" stroke="#38bdf8" strokeWidth="1.5" className="anim-drip-ripple" />
                       </g>
                     )}
-
-                    {/* Chậu đất terracotta */}
                     <path
                       d="M 6 52 L 12 76 L 38 76 L 44 52 Z"
                       fill="url(#soilPotGrad)"
                       stroke="#78350f"
                       strokeWidth="1.5"
                     />
-                    {/* Cây cà chua xanh */}
                     <circle cx="25" cy="38" r="16" fill="url(#tomatoLeafGrad)" opacity="0.95" />
-                    {/* Quả cà chua chín đỏ */}
                     <circle cx="18" cy="35" r="3.5" fill="#dc2626" />
                     <circle cx="31" cy="42" r="3.5" fill="#dc2626" />
                     <text x="25" y="68" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="bold">
@@ -904,25 +1087,14 @@ export default function HmiGardenMap({
                   </g>
                 );
               })}
-
-              {/* Cảnh báo sự cố nếu có trên hàng 1 */}
-              {(hasNoFlowH1 || hasLeakH1) && (
-                <g transform="translate(480, 48)">
-                  <rect x="0" y="0" width="210" height="24" rx="6" fill="#fee2e2" stroke="#ef4444" strokeWidth="1.5" />
-                  <text x="10" y="16" fill="#b91c1c" fontSize="9.5" fontWeight="bold">
-                    ⚠️ {hasNoFlowH1 ? "MẤT DÒNG CHẢY H1 (Kẹt van/Lọc)" : "NGHI RÒ RỈ VAN 1"}
-                  </text>
-                </g>
-              )}
             </g>
 
-            {/* ==================== HÀNG 2: THEO ĐỘ ẨM ĐẤT (CẢM BIẾN S1 & S2) ==================== */}
+            {/* HÀNG 2 */}
             <g
               onClick={() => setSelectedZone("row2")}
               className="cursor-pointer"
               transform="translate(280, 205)"
             >
-              {/* Thân luống hàng 2 */}
               <rect
                 x="0"
                 y="0"
@@ -938,7 +1110,6 @@ export default function HmiGardenMap({
               <text x="52" y="24" fill="#1e293b" fontSize="11.5" fontWeight="bold">
                 HÀNG 2 — Theo Độ Ẩm Đất Tự Động (S1, S2) • Hôm nay: {row2DailyL.toFixed(2)}L • TB: {h2Avg != null ? `${h2Avg.toFixed(1)}%` : "—"}
               </text>
-
               <rect
                 x="545"
                 y="10"
@@ -961,7 +1132,7 @@ export default function HmiGardenMap({
                 {row2Valve ? "VAN ĐANG MỞ (TƯỚI)" : "VAN ĐANG ĐÓNG"}
               </text>
 
-              {/* KHỐI 1: VAN ĐIỆN TỪ SOLENOID 2 */}
+              {/* Van 2 */}
               <g transform="translate(14, 52)">
                 <rect x="0" y="8" width="40" height="26" rx="4" fill="#b45309" stroke="#78350f" strokeWidth="1" />
                 <rect
@@ -975,15 +1146,11 @@ export default function HmiGardenMap({
                   strokeWidth="1"
                   className={row2Valve ? "animate-pulse" : ""}
                 />
-                <text x="20" y="24" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">
-                  VAN 2
-                </text>
-                <text x="20" y="44" textAnchor="middle" fill="#64748b" fontSize="7">
-                  Solenoid
-                </text>
+                <text x="20" y="24" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">VAN 2</text>
+                <text x="20" y="44" textAnchor="middle" fill="#64748b" fontSize="7">Solenoid</text>
               </g>
 
-              {/* KHỐI 2: CẢM BIẾN LƯU LƯỢNG YF-S201 HÀNG 2 */}
+              {/* YF-S201 Hàng 2 */}
               <g transform="translate(68, 52)">
                 <rect x="0" y="6" width="46" height="30" rx="6" fill="#1e293b" stroke="#0284c7" strokeWidth="1" />
                 <circle cx="23" cy="21" r="10" fill="#0369a1" />
@@ -993,12 +1160,9 @@ export default function HmiGardenMap({
                   <circle cx="0" cy="0" r="2.5" fill="#eab308" />
                 </g>
                 <circle cx="39" cy="11" r="2.5" fill="#eab308" className={row2Valve ? "animate-ping" : ""} />
-                <text x="23" y="44" textAnchor="middle" fill="#0284c7" fontSize="7 font-mono font-bold">
-                  YF-S201
-                </text>
+                <text x="23" y="44" textAnchor="middle" fill="#0284c7" fontSize="7 font-mono font-bold">YF-S201</text>
               </g>
 
-              {/* Ống nhánh PE16 */}
               <line
                 x1="120"
                 y1="73"
@@ -1009,14 +1173,13 @@ export default function HmiGardenMap({
                 className={row2Valve ? "anim-flow-water" : ""}
               />
 
-              {/* 4 Chậu hàng 2 với CẢM BIẾN ĐẤT ĐIỆN DUNG S1 (ở Chậu 1) & S2 (ở Chậu 3) */}
+              {/* 4 Chậu hàng 2 */}
               {[1, 2, 3, 4].map((potNum, i) => {
                 const px = 175 + i * 135;
                 const hasSensor = potNum === 1 || potNum === 3;
                 const sensorName = potNum === 1 ? "S1" : "S2";
                 const sensorVal = potNum === 1 ? s1 : s2;
                 const isDry = sensorVal != null && sensorVal < 35;
-                const isWet = sensorVal != null && sensorVal > 60;
 
                 return (
                   <g key={potNum} transform={`translate(${px}, 48)`}>
@@ -1027,8 +1190,6 @@ export default function HmiGardenMap({
                         <circle cx="25" cy="56" r="3" fill="none" stroke="#38bdf8" strokeWidth="1.5" className="anim-drip-ripple" />
                       </g>
                     )}
-
-                    {/* Chậu cà chua */}
                     <path
                       d="M 6 52 L 12 76 L 38 76 L 44 52 Z"
                       fill={isDry ? "#b45309" : "url(#soilPotGrad)"}
@@ -1042,7 +1203,7 @@ export default function HmiGardenMap({
                       C2-{potNum}
                     </text>
 
-                    {/* KHỐI HÌNH THỂ HIỆN CẢM BIẾN ĐỘ ẨM ĐẤT ĐIỆN DUNG (CAPACITIVE V1.2) */}
+                    {/* Bo mạch cảm biến đất điện dung */}
                     {hasSensor && (
                       <g
                         onClick={(e) => {
@@ -1052,68 +1213,23 @@ export default function HmiGardenMap({
                         className="cursor-pointer"
                         transform="translate(36, 32)"
                       >
-                        {/* Bo mạch cảm biến điện dung cắm sâu vào đất */}
                         <rect x="0" y="0" width="12" height="38" rx="2" fill="#0f172a" stroke="#0ea5e9" strokeWidth="1" />
-                        {/* 2 chân đo điện dung mạ vàng */}
                         <line x1="3" y1="18" x2="3" y2="36" stroke="#f59e0b" strokeWidth="1.5" />
                         <line x1="9" y1="18" x2="9" y2="36" stroke="#f59e0b" strokeWidth="1.5" />
-
-                        {/* Sóng đo điện dung trong đất */}
                         <circle cx="6" cy="28" r="6" fill="none" stroke="#38bdf8" strokeWidth="1" opacity="0.7" className="anim-capacitive-field" />
-
-                        {/* Thẻ đọc số liệu cảm biến S1/S2 */}
-                        <g transform="translate(-40, -42)">
-                          <rect
-                            x="0"
-                            y="0"
-                            width="92"
-                            height="34"
-                            rx="6"
-                            fill={isDry ? "#fffbeb" : "#ffffff"}
-                            stroke={isDry ? "#d97706" : "#059669"}
-                            strokeWidth={isDry ? 1.8 : 1.2}
-                            filter="drop-shadow(0 1px 2px rgba(0,0,0,0.08))"
-                          />
-                          <text x="8" y="13" fill="#0f172a" fontSize="8.5" fontWeight="bold">
-                            {sensorName}: {sensorVal != null ? `${sensorVal.toFixed(1)}%` : "—"}
-                          </text>
-                          <text x="8" y="24" fill={isDry ? "#b45309" : "#059669"} fontSize="7.5" fontWeight="bold">
-                            {isDry ? "⚠️ ĐẤT KHÔ HẠN" : isWet ? "Đủ ẩm bão hòa" : "✓ Ẩm đất tối ưu"}
-                          </text>
-                          {/* Mini progress bar */}
-                          <rect x="8" y="27" width="76" height="3" rx="1.5" fill="#e2e8f0" />
-                          <rect
-                            x="8"
-                            y="27"
-                            width={(Math.min(100, Math.max(0, sensorVal ?? 0)) * 76) / 100}
-                            height="3"
-                            rx="1.5"
-                            fill={isDry ? "#d97706" : "#059669"}
-                          />
-                        </g>
                       </g>
                     )}
                   </g>
                 );
               })}
-
-              {(hasNoFlowH2 || hasLeakH2) && (
-                <g transform="translate(480, 54)">
-                  <rect x="0" y="0" width="210" height="24" rx="6" fill="#fee2e2" stroke="#ef4444" strokeWidth="1.5" />
-                  <text x="10" y="16" fill="#b91c1c" fontSize="9.5" fontWeight="bold">
-                    ⚠️ {hasNoFlowH2 ? "MẤT DÒNG CHẢY H2" : "NGHI RÒ RỈ VAN 2"}
-                  </text>
-                </g>
-              )}
             </g>
 
-            {/* ==================== HÀNG 3: ĐA CẢM BIẾN & BÙ VI KHÍ HẬU VPD (S3 & S4) ==================== */}
+            {/* HÀNG 3 */}
             <g
               onClick={() => setSelectedZone("row3")}
               className="cursor-pointer"
               transform="translate(280, 365)"
             >
-              {/* Thân luống hàng 3 */}
               <rect
                 x="0"
                 y="0"
@@ -1129,7 +1245,6 @@ export default function HmiGardenMap({
               <text x="52" y="24" fill="#1e293b" fontSize="11.5" fontWeight="bold">
                 HÀNG 3 — Đa Cảm Biến &amp; Bù Vi Khí Hậu VPD (S3, S4) • {row3DailyL.toFixed(2)}L • TB: {h3Avg != null ? `${h3Avg.toFixed(1)}%` : "—"}
               </text>
-
               <rect
                 x="545"
                 y="10"
@@ -1152,7 +1267,7 @@ export default function HmiGardenMap({
                 {row3Valve ? "VAN ĐANG MỞ (TƯỚI)" : "VAN ĐANG ĐÓNG"}
               </text>
 
-              {/* KHỐI 1: VAN ĐIỆN TỪ SOLENOID 3 */}
+              {/* Van 3 */}
               <g transform="translate(14, 52)">
                 <rect x="0" y="8" width="40" height="26" rx="4" fill="#b45309" stroke="#78350f" strokeWidth="1" />
                 <rect
@@ -1166,15 +1281,11 @@ export default function HmiGardenMap({
                   strokeWidth="1"
                   className={row3Valve ? "animate-pulse" : ""}
                 />
-                <text x="20" y="24" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">
-                  VAN 3
-                </text>
-                <text x="20" y="44" textAnchor="middle" fill="#64748b" fontSize="7">
-                  Solenoid
-                </text>
+                <text x="20" y="24" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">VAN 3</text>
+                <text x="20" y="44" textAnchor="middle" fill="#64748b" fontSize="7">Solenoid</text>
               </g>
 
-              {/* KHỐI 2: CẢM BIẾN LƯU LƯỢNG YF-S201 HÀNG 3 */}
+              {/* YF-S201 Hàng 3 */}
               <g transform="translate(68, 52)">
                 <rect x="0" y="6" width="46" height="30" rx="6" fill="#1e293b" stroke="#0284c7" strokeWidth="1" />
                 <circle cx="23" cy="21" r="10" fill="#0369a1" />
@@ -1184,12 +1295,9 @@ export default function HmiGardenMap({
                   <circle cx="0" cy="0" r="2.5" fill="#eab308" />
                 </g>
                 <circle cx="39" cy="11" r="2.5" fill="#eab308" className={row3Valve ? "animate-ping" : ""} />
-                <text x="23" y="44" textAnchor="middle" fill="#0284c7" fontSize="7 font-mono font-bold">
-                  YF-S201
-                </text>
+                <text x="23" y="44" textAnchor="middle" fill="#0284c7" fontSize="7 font-mono font-bold">YF-S201</text>
               </g>
 
-              {/* Ống nhánh PE16 */}
               <line
                 x1="120"
                 y1="73"
@@ -1200,14 +1308,13 @@ export default function HmiGardenMap({
                 className={row3Valve ? "anim-flow-water" : ""}
               />
 
-              {/* 4 Chậu hàng 3 với CẢM BIẾN ĐẤT S3 (Chậu 1) & S4 (Chậu 3) */}
+              {/* 4 Chậu hàng 3 */}
               {[1, 2, 3, 4].map((potNum, i) => {
                 const px = 175 + i * 135;
                 const hasSensor = potNum === 1 || potNum === 3;
                 const sensorName = potNum === 1 ? "S3" : "S4";
                 const sensorVal = potNum === 1 ? s3 : s4;
                 const isDry = sensorVal != null && sensorVal < 38;
-                const isWet = sensorVal != null && sensorVal > 62;
 
                 return (
                   <g key={potNum} transform={`translate(${px}, 48)`}>
@@ -1218,7 +1325,6 @@ export default function HmiGardenMap({
                         <circle cx="25" cy="56" r="3" fill="none" stroke="#38bdf8" strokeWidth="1.5" className="anim-drip-ripple" />
                       </g>
                     )}
-
                     <path
                       d="M 6 52 L 12 76 L 38 76 L 44 52 Z"
                       fill={isDry ? "#b45309" : "url(#soilPotGrad)"}
@@ -1232,7 +1338,6 @@ export default function HmiGardenMap({
                       C3-{potNum}
                     </text>
 
-                    {/* CẢM BIẾN ĐẤT ĐIỆN DUNG S3 / S4 */}
                     {hasSensor && (
                       <g
                         onClick={(e) => {
@@ -1246,52 +1351,14 @@ export default function HmiGardenMap({
                         <line x1="3" y1="18" x2="3" y2="36" stroke="#f59e0b" strokeWidth="1.5" />
                         <line x1="9" y1="18" x2="9" y2="36" stroke="#f59e0b" strokeWidth="1.5" />
                         <circle cx="6" cy="28" r="6" fill="none" stroke="#0d9488" strokeWidth="1" opacity="0.7" className="anim-capacitive-field" />
-
-                        <g transform="translate(-40, -42)">
-                          <rect
-                            x="0"
-                            y="0"
-                            width="92"
-                            height="34"
-                            rx="6"
-                            fill={isDry ? "#fffbeb" : "#ffffff"}
-                            stroke={isDry ? "#d97706" : "#0d9488"}
-                            strokeWidth={isDry ? 1.8 : 1.2}
-                            filter="drop-shadow(0 1px 2px rgba(0,0,0,0.08))"
-                          />
-                          <text x="8" y="13" fill="#0f172a" fontSize="8.5" fontWeight="bold">
-                            {sensorName}: {sensorVal != null ? `${sensorVal.toFixed(1)}%` : "—"}
-                          </text>
-                          <text x="8" y="24" fill={isDry ? "#b45309" : "#0d9488"} fontSize="7.5" fontWeight="bold">
-                            {isDry ? "⚠️ ĐẤT KHÔ (VPD Bù)" : isWet ? "Đủ ẩm bão hòa" : "✓ Ẩm đất + VPD chuẩn"}
-                          </text>
-                          <rect x="8" y="27" width="76" height="3" rx="1.5" fill="#e2e8f0" />
-                          <rect
-                            x="8"
-                            y="27"
-                            width={(Math.min(100, Math.max(0, sensorVal ?? 0)) * 76) / 100}
-                            height="3"
-                            rx="1.5"
-                            fill={isDry ? "#d97706" : "#0d9488"}
-                          />
-                        </g>
                       </g>
                     )}
                   </g>
                 );
               })}
-
-              {(hasNoFlowH3 || hasLeakH3) && (
-                <g transform="translate(480, 54)">
-                  <rect x="0" y="0" width="210" height="24" rx="6" fill="#fee2e2" stroke="#ef4444" strokeWidth="1.5" />
-                  <text x="10" y="16" fill="#b91c1c" fontSize="9.5" fontWeight="bold">
-                    ⚠️ {hasNoFlowH3 ? "MẤT DÒNG CHẢY H3" : "NGHI RÒ RỈ VAN 3"}
-                  </text>
-                </g>
-              )}
             </g>
 
-            {/* Đường liên kết thích ứng vi khí hậu VPD từ Trạm SHT31 sang Hàng 3 */}
+            {/* Đường liên kết thích ứng vi khí hậu VPD */}
             <path
               d="M 225 470 C 250 470, 260 450, 280 435"
               fill="none"
@@ -1305,15 +1372,166 @@ export default function HmiGardenMap({
               +VPD Boost
             </text>
 
+            {/* ========================================================================= */}
+            {/* LỚP TRÌNH DIỄN MỐC VỊ TRÍ THINGSBOARD CLOUD MAP PINS (HIỂN THỊ ĐÈ LÊN TRÊN) */}
+            {/* ========================================================================= */}
+
+            {/* 1. MỐC BỒN NƯỚC 100L */}
+            <ThingsBoardPin
+              x={125}
+              y={75}
+              title={isTankEmpty ? "🚨 BỒN CẠN NƯỚC!" : "Bồn Nước 100L"}
+              isFault={isTankEmpty}
+              iconType="tank"
+              visible={showAllPins || isTankEmpty}
+              onClick={() => setSelectedZone("tank")}
+            />
+
+            {/* 2. MỐC BƠM TĂNG ÁP 12V */}
+            <ThingsBoardPin
+              x={125}
+              y={195}
+              title={isTankEmpty && pumpOn ? "⚠️ BƠM: KHÓA AN TOÀN" : pumpOn ? "Bơm 12V (Đang chạy)" : "Bơm 12V (Nghỉ)"}
+              isWarning={isTankEmpty && pumpOn}
+              iconType="pump"
+              visible={showAllPins || (isTankEmpty && pumpOn)}
+              onClick={() => setSelectedZone("pump")}
+            />
+
+            {/* 3. MỐC TỦ ĐIỀU KHIỂN TRUNG TÂM IOT */}
+            <ThingsBoardPin
+              x={125}
+              y={295}
+              title="Tủ IoT ESP32-S3 (4G)"
+              iconType="controller"
+              visible={showAllPins}
+              onClick={() => setSelectedZone("controller")}
+            />
+
+            {/* 4. MỐC TRẠM VI KHÍ HẬU SHT31 */}
+            <ThingsBoardPin
+              x={125}
+              y={435}
+              title={vpdKpa != null && vpdKpa >= 1.5 ? "⚠️ SHT31: Nắng Gắt (Bù VPD)" : "Trạm SHT31"}
+              isWarning={vpdKpa != null && vpdKpa >= 1.5}
+              iconType="weather"
+              visible={showAllPins || (vpdKpa != null && vpdKpa >= 1.5)}
+              onClick={() => setSelectedZone("weather")}
+            />
+
+            {/* 5. MỐC CỤM VAN 1 & YF-S201 */}
+            <ThingsBoardPin
+              x={345}
+              y={85}
+              title={
+                hasNoFlowH1
+                  ? "🚨 MẤT DÒNG CHẢY H1!"
+                  : hasLeakH1
+                  ? "⚠️ RÒ RỈ VAN 1!"
+                  : row1Valve
+                  ? "Van 1 (Đang tưới)"
+                  : "Van 1 & YF-S201"
+              }
+              isFault={hasNoFlowH1}
+              isWarning={hasLeakH1}
+              iconType="valve"
+              visible={showAllPins || hasNoFlowH1 || hasLeakH1}
+              onClick={() => setSelectedZone("row1")}
+            />
+
+            {/* 6. MỐC CỤM VAN 2 & YF-S201 */}
+            <ThingsBoardPin
+              x={345}
+              y={235}
+              title={
+                hasNoFlowH2
+                  ? "🚨 MẤT DÒNG CHẢY H2!"
+                  : hasLeakH2
+                  ? "⚠️ RÒ RỈ VAN 2!"
+                  : row2Valve
+                  ? "Van 2 (Đang tưới)"
+                  : "Van 2 & YF-S201"
+              }
+              isFault={hasNoFlowH2}
+              isWarning={hasLeakH2}
+              iconType="valve"
+              visible={showAllPins || hasNoFlowH2 || hasLeakH2}
+              onClick={() => setSelectedZone("row2")}
+            />
+
+            {/* 7. MỐC CỤM VAN 3 & YF-S201 */}
+            <ThingsBoardPin
+              x={345}
+              y={395}
+              title={
+                hasNoFlowH3
+                  ? "🚨 MẤT DÒNG CHẢY H3!"
+                  : hasLeakH3
+                  ? "⚠️ RÒ RỈ VAN 3!"
+                  : row3Valve
+                  ? "Van 3 (Đang tưới)"
+                  : "Van 3 & YF-S201"
+              }
+              isFault={hasNoFlowH3}
+              isWarning={hasLeakH3}
+              iconType="valve"
+              visible={showAllPins || hasNoFlowH3 || hasLeakH3}
+              onClick={() => setSelectedZone("row3")}
+            />
+
+            {/* 8. MỐC CẢM BIẾN ĐỘ ẨM ĐẤT S1 (HÀNG 2 - CHẬU 1) */}
+            <ThingsBoardPin
+              x={485}
+              y={235}
+              title={s1 != null && s1 < 30 ? `🚨 S1: KHÔ HẠN (${s1.toFixed(1)}%)` : `Cảm Biến S1 (${s1?.toFixed(1) || "—"}%)`}
+              isFault={s1 != null && s1 < 30}
+              iconType="soil"
+              visible={showAllPins || (s1 != null && s1 < 30)}
+              onClick={() => setSelectedZone("sensor_s1")}
+            />
+
+            {/* 9. MỐC CẢM BIẾN ĐỘ ẨM ĐẤT S2 (HÀNG 2 - CHẬU 3) */}
+            <ThingsBoardPin
+              x={755}
+              y={235}
+              title={s2 != null && s2 < 30 ? `🚨 S2: KHÔ HẠN (${s2.toFixed(1)}%)` : `Cảm Biến S2 (${s2?.toFixed(1) || "—"}%)`}
+              isFault={s2 != null && s2 < 30}
+              iconType="soil"
+              visible={showAllPins || (s2 != null && s2 < 30)}
+              onClick={() => setSelectedZone("sensor_s2")}
+            />
+
+            {/* 10. MỐC CẢM BIẾN ĐỘ ẨM ĐẤT S3 (HÀNG 3 - CHẬU 1) */}
+            <ThingsBoardPin
+              x={485}
+              y={395}
+              title={s3 != null && s3 < 30 ? `🚨 S3: KHÔ HẠN (${s3.toFixed(1)}%)` : `Cảm Biến S3 (${s3?.toFixed(1) || "—"}%)`}
+              isFault={s3 != null && s3 < 30}
+              iconType="soil"
+              visible={showAllPins || (s3 != null && s3 < 30)}
+              onClick={() => setSelectedZone("sensor_s3")}
+            />
+
+            {/* 11. MỐC CẢM BIẾN ĐỘ ẨM ĐẤT S4 (HÀNG 3 - CHẬU 3) */}
+            <ThingsBoardPin
+              x={755}
+              y={395}
+              title={s4 != null && s4 < 30 ? `🚨 S4: KHÔ HẠN (${s4.toFixed(1)}%)` : `Cảm Biến S4 (${s4?.toFixed(1) || "—"}%)`}
+              isFault={s4 != null && s4 < 30}
+              iconType="soil"
+              visible={showAllPins || (s4 != null && s4 < 30)}
+              onClick={() => setSelectedZone("sensor_s4")}
+            />
+
             {/* Dòng chú thích mặt bằng */}
-            <text x="32" y="545" fill="#94a3b8" fontSize="10">
-              📍 Sơ đồ kỹ thuật 12 chậu • Học viện Nông nghiệp Việt Nam • Cảm biến Điện dung Analog v1.2 &amp; Lưu lượng kế YF-S201
+            <text x="32" y="555" fill="#94a3b8" fontSize="10">
+              📍 Mốc vị trí ThingsBoard Cloud • Nhấp vào ghim đỏ (✕) để xem chẩn đoán sự cố và hướng dẫn công nhân xử lý (SOP)
             </text>
           </svg>
         </div>
       </div>
 
-      {/* 3. NGĂN THÔNG TIN CHI TIẾT THIẾT BỊ & HƯỚNG DẪN SOP CÔNG NHÂN KHI BẤM VÀO SƠ ĐỒ */}
+      {/* 3. NGĂN THÔNG TIN CHI TIẾT THIẾT BỊ & HƯỚNG DẪN SOP CÔNG NHÂN KHI BẤM VÀO SƠ ĐỒ HOẶC GHIM PIN */}
       {selectedZone && (
         <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xl transition-all animate-in fade-in zoom-in-95 duration-200">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -1323,17 +1541,17 @@ export default function HmiGardenMap({
               </span>
               <div>
                 <h4 className="font-bold text-slate-800 text-sm">
-                  {selectedZone === "tank" && "Chi Tiết Thiết Bị: Bồn Nước 100L & Cảm Biến Phao Điện Từ"}
-                  {selectedZone === "pump" && "Chi Tiết Thiết Bị: Bơm Tăng Áp 12V DC & Rơ-le Cấp Nước"}
-                  {selectedZone === "controller" && "Chi Tiết: Tủ Điều Khiển Trung Tâm IoT (ESP32-S3 + 4G LTE)"}
-                  {selectedZone === "weather" && "Chi Tiết: Trạm Đo Vi Khí Hậu Nhà Màng SHT31 & Chỉ Số VPD"}
-                  {selectedZone === "row1" && "Chi Tiết Luống: Hàng 1 — Hẹn Giờ Cố Định (Van 1 & YF-S201)"}
-                  {selectedZone === "row2" && "Chi Tiết Luống: Hàng 2 — Độ Ẩm Đất Tự Động (Van 2 & YF-S201)"}
-                  {selectedZone === "row3" && "Chi Tiết Luống: Hàng 3 — Đa Cảm Biến Bù VPD (Van 3 & YF-S201)"}
-                  {selectedZone === "sensor_s1" && "Chi Tiết Cảm Biến: S1 — Cảm Biến Độ Ẩm Đất Điện Dung (Hàng 2 - Chậu 1)"}
-                  {selectedZone === "sensor_s2" && "Chi Tiết Cảm Biến: S2 — Cảm Biến Độ Ẩm Đất Điện Dung (Hàng 2 - Chậu 3)"}
-                  {selectedZone === "sensor_s3" && "Chi Tiết Cảm Biến: S3 — Cảm Biến Độ Ẩm Đất Điện Dung (Hàng 3 - Chậu 1)"}
-                  {selectedZone === "sensor_s4" && "Chi Tiết Cảm Biến: S4 — Cảm Biến Độ Ẩm Đất Điện Dung (Hàng 3 - Chậu 3)"}
+                  {selectedZone === "tank" && "Chi Tiết Vị Trí: Bồn Nước 100L & Cảm Biến Phao Điện Từ"}
+                  {selectedZone === "pump" && "Chi Tiết Vị Trí: Bơm Tăng Áp 12V DC & Rơ-le Cấp Nước"}
+                  {selectedZone === "controller" && "Chi Tiết Vị Trí: Tủ Điều Khiển Trung Tâm IoT (ESP32-S3 + 4G LTE)"}
+                  {selectedZone === "weather" && "Chi Tiết Vị Trí: Trạm Đo Vi Khí Hậu Nhà Màng SHT31 & Chỉ Số VPD"}
+                  {selectedZone === "row1" && "Chi Tiết Vị Trí: Hàng 1 — Hẹn Giờ Cố Định (Van 1 & YF-S201)"}
+                  {selectedZone === "row2" && "Chi Tiết Vị Trí: Hàng 2 — Độ Ẩm Đất Tự Động (Van 2 & YF-S201)"}
+                  {selectedZone === "row3" && "Chi Tiết Vị Trí: Hàng 3 — Đa Cảm Biến Bù VPD (Van 3 & YF-S201)"}
+                  {selectedZone === "sensor_s1" && "Chi Tiết Vị Trí: Cảm Biến Độ Ẩm Đất S1 (Hàng 2 - Chậu 1)"}
+                  {selectedZone === "sensor_s2" && "Chi Tiết Vị Trí: Cảm Biến Độ Ẩm Đất S2 (Hàng 2 - Chậu 3)"}
+                  {selectedZone === "sensor_s3" && "Chi Tiết Vị Trí: Cảm Biến Độ Ẩm Đất S3 (Hàng 3 - Chậu 1)"}
+                  {selectedZone === "sensor_s4" && "Chi Tiết Vị Trí: Cảm Biến Độ Ẩm Đất S4 (Hàng 3 - Chậu 3)"}
                 </h4>
                 <p className="text-[11px] text-slate-500">Thông số kỹ thuật phần cứng, tình trạng đo và quy trình vận hành chuẩn</p>
               </div>
@@ -1417,13 +1635,14 @@ export default function HmiGardenMap({
                   const sNum = selectedZone === "sensor_s1" ? 1 : selectedZone === "sensor_s2" ? 2 : selectedZone === "sensor_s3" ? 3 : 4;
                   const rowNum = sNum <= 2 ? 2 : 3;
                   const potNum = sNum === 1 || sNum === 3 ? 1 : 3;
-                  const curVal = soilMoisture[sNum - 1];
+                  const curVal = sNum === 1 ? s1 : soilMoisture[sNum - 1];
+                  const isDrought = curVal != null && curVal < 30;
                   return (
                     <div className="space-y-3">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                           <span className="text-slate-500 block text-[10px]">Giá trị độ ẩm đo được</span>
-                          <strong className="text-base font-black text-emerald-700">
+                          <strong className={`text-base font-black ${isDrought ? "text-red-600" : "text-emerald-700"}`}>
                             {curVal != null ? `${curVal.toFixed(1)}%` : "Chờ bản tin"}
                           </strong>
                         </div>
@@ -1440,9 +1659,11 @@ export default function HmiGardenMap({
                           <strong className="text-sm text-emerald-700">Không bị điện phân mòn cực</strong>
                         </div>
                       </div>
-                      <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900">
-                        <strong>📌 Lưu ý bảo dưỡng cho công nhân:</strong> Cảm biến đo hằng số điện môi của đất xung quanh hai bản cực. Nếu độ ẩm hiển thị bất thường (0% hoặc 100%), kiểm tra xem đầu cắm có bị lung lay hoặc rễ cây bám quá chặt làm hở đất quanh bản cực hay không.
-                      </div>
+                      {isDrought && (
+                        <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-900">
+                          <strong>🚨 CẢNH BÁO ĐẤT KHÔ HẠN:</strong> Độ ẩm bầu đất đang dưới ngưỡng 30%. Hãy nhấn nút <strong>"Tưới Hàng {rowNum} ngay"</strong> hoặc kiểm tra chế độ tưới tự động để bù ẩm kịp thời cho cây cà chua.
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
