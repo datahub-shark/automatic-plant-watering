@@ -63,3 +63,5 @@ vps-mqtt-backend/*.sqlite*
 vps-mqtt-backend/*.log
 vps-mqtt-backend/*.exe
 vps-mqtt-backend/.env
+vps-mqtt-backend/static/
+*.tar.gz

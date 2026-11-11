@@ -62,3 +62,35 @@ Vì VPS dùng **IP NAT** (chỉ mở sẵn cổng RDP `12925`), bạn có **2 c�
    - Double-click **`start-tunnel.bat`** $\rightarrow$ Lấy URL `https://....trycloudflare.com` để kết nối từ Web HMI!
 
 > **Chạy ngầm 24/24:** Sau khi test OK, tạo 2 tác vụ trong **Windows Task Scheduler** (Trigger: *At startup*, *Run whether user is logged on or not*) trỏ tới `start-backend.bat` và `start-tunnel.bat` để máy chủ tự bật lại sau mỗi lần VPS reboot hoặc bảo trì.
+
+---
+
+## Triển Khai Bằng Docker / Docker Compose (Đóng gói All-in-One: Web HMI + FastAPI + MQTT)
+
+Thư mục gốc của nhánh `mqtt-parallel` có sẵn `Dockerfile` đa tầng (multi-stage): tự động build Web HMI (`build:vps`), nhúng thẳng vào `static/` của FastAPI (cổng `10000`), nên mở thẳng địa chỉ VPS là vào ngay giao diện điều khiển **cùng nguồn (same-origin)** mà không cần GitHub Pages!
+
+### 1. Chạy nhanh trên máy có Docker (hoặc VPS Ubuntu Linux)
+```bash
+git clone -b mqtt-parallel https://github.com/datahub-shark/automatic-plant-watering.git tomato-mqtt
+cd tomato-mqtt
+cp vps-mqtt-backend/.env.example vps-mqtt-backend/.env
+# Mở vps-mqtt-backend/.env sửa MQTT_BROKER, MQTT_USERNAME, MQTT_PASSWORD, CF_DEVICE_TOKEN, JWT_SECRET
+
+# Chỉ chạy Web HMI + FastAPI + MQTT Client (nối tới HiveMQ Cloud TLS 8883):
+docker compose up -d --build
+
+# Chạy kèm Eclipse Mosquitto nội bộ + Cloudflare Tunnel:
+docker compose --profile local-mqtt --profile tunnel up -d --build
+```
+
+### 2. Xuất file `.tar.gz` đã build sẵn để đẩy thẳng lên VPS
+Nếu bạn build sẵn image ở máy cá nhân và muốn copy sang VPS mà không cần build lại trên VPS:
+```bash
+docker save tomato-iot-mqtt:latest | gzip > tomato-iot-mqtt.tar.gz
+# Copy sang VPS rồi nạp lại:
+docker load < tomato-iot-mqtt.tar.gz
+docker compose up -d --no-build
+```
+
+> **Lưu ý nếu dùng Docker trên `VPS 4-4 IP NAT` Windows:** Các gói VPS Windows giá rẻ thường không bật nested virtualization (Hyper-V/WSL2) để chạy container Linux. Nếu không cài được Docker Desktop trên Windows VPS, hãy bấm **Reinstall sang Ubuntu Linux** trên panel `vps.info.vn` (để chạy Docker native cực nhẹ), hoặc giữ Windows chạy trực tiếp Python theo các bước ở mục trên.
+

@@ -10,6 +10,7 @@
     "dev": "node scripts/run-framework.mjs dev",
     "build": "node scripts/run-framework.mjs build",
     "build:pages": "vite build --config pages.vite.config.ts",
+    "build:vps": "vite build --config vps.vite.config.ts",
     "worker:check": "tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --lib es2022 --skipLibCheck --types @cloudflare/workers-types cloudflare-worker/src/index.ts",
     "worker:dev": "wrangler dev --config cloudflare-worker/wrangler.jsonc",
     "worker:deploy": "wrangler deploy --config cloudflare-worker/wrangler.jsonc",

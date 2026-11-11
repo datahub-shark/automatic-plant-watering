@@ -44,6 +44,10 @@ import HmiAlarms from "./hmi-alarms";
 import HmiGuide from "./hmi-guide";
 import HmiFuture from "./hmi-future";
 
+// Cờ build định danh khi Web HMI được host trực tiếp bên trong Docker/FastAPI VPS
+declare const __VPS_HOSTED__: boolean | undefined;
+const IS_VPS_HOSTED = typeof __VPS_HOSTED__ !== "undefined" && __VPS_HOSTED__;
+
 // URL Cloudflare Worker API chính thức
 const CLOUDFLARE_WORKER_API = "https://automatic-plant-watering-api.datahub-shark.workers.dev/api/v1";
 
@@ -283,7 +287,7 @@ export default function Dashboard({
   staticMode?: boolean;
 }) {
   const [tab, setTab] = useState<"overview" | "map2d" | "pid" | "alarms" | "config" | "guide" | "future">("overview");
-  const [mode, setMode] = useState<"live" | "mqtt" | "demo">("demo");
+  const [mode, setMode] = useState<"live" | "mqtt" | "demo">(IS_VPS_HOSTED ? "mqtt" : "demo");
   const [device, setDevice] = useState("stm32_01");
   const [devices, setDevices] = useState<Device[]>([]);
   const [latest, setLatest] = useState<Sample | null>(null);
@@ -349,12 +353,16 @@ export default function Dashboard({
   const [vpsMqttBrokerOk, setVpsMqttBrokerOk] = useState<boolean>(false);
   const [mqttDeviceStatus, setMqttDeviceStatus] = useState<string>("unknown");
 
-  // Đọc token và URL VPS từ storage khi khởi tạo
+  // Đọc token và URL VPS từ storage khi khởi tạo (tự nhận diện same-origin khi chạy trong Docker/VPS)
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedVpsUrl = localStorage.getItem("TOMATO_VPS_API_URL");
       const savedVpsToken = localStorage.getItem("TOMATO_VPS_TOKEN");
-      if (savedVpsUrl) setVpsApiUrl(savedVpsUrl);
+      if (savedVpsUrl) {
+        setVpsApiUrl(savedVpsUrl);
+      } else if (IS_VPS_HOSTED) {
+        setVpsApiUrl(window.location.origin);
+      }
       if (savedVpsToken) setVpsToken(savedVpsToken);
 
       const saved = sessionStorage.getItem("TOMATO_ADMIN_TOKEN") || localStorage.getItem("TOMATO_ADMIN_TOKEN");

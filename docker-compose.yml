@@ -1,0 +1,54 @@
+services:
+  # 1. Dịch vụ chính: Web HMI 2.0 + FastAPI + MQTT Client + WebSocket + Cloudflare D1 Sync
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tomato-iot-mqtt:latest
+    container_name: tomato-mqtt-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-10000}:10000"
+    env_file:
+      - path: ./.env
+        required: false
+      - path: ./vps-mqtt-backend/.env
+        required: false
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=10000
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/tomato_mqtt.db}
+    volumes:
+      - tomato_db_data:/app/data
+
+  # 2. Tùy chọn: Eclipse Mosquitto Broker chạy ngay trong VPS
+  # Kích hoạt bằng lệnh: docker compose --profile local-mqtt up -d
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: tomato-mosquitto
+    profiles: ["local-mqtt"]
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./vps-mqtt-backend/mosquitto/mosquitto.docker.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+  # 3. Tùy chọn: Cloudflare Tunnel (mở HTTPS/WSS vượt IP NAT miễn phí)
+  # Quick Tunnel: docker compose --profile tunnel up -d
+  # Named Tunnel (tên miền cố định): truyền biến CF_TUNNEL_TOKEN vào .env
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: tomato-cloudflared
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    depends_on:
+      - backend
+    command: tunnel --no-autoupdate --url http://backend:10000
+
+volumes:
+  tomato_db_data:
+  mosquitto_data:
+  mosquitto_log:

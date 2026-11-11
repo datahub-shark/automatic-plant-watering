@@ -9,11 +9,13 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import inspect
 
@@ -106,6 +108,10 @@ app.add_middleware(
 app.include_router(router)
 templates = Jinja2Templates(directory="templates")
 
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if (STATIC_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+
 
 @app.get("/health")
 def health_check():
@@ -114,6 +120,7 @@ def health_check():
         "status": "healthy",
         "service": "tomato-mqtt-vps-backend",
         "database": "connected",
+        "web_ui_bundled": (STATIC_DIR / "index.html").is_file(),
         "mqtt_configured": mqtt_handler.is_configured(),
         "mqtt_connected": mqtt_handler.connected,
         "mqtt_broker": mqtt_handler.broker or None,
@@ -122,8 +129,8 @@ def health_check():
     }
 
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard():
+@app.get("/status", response_class=HTMLResponse)
+def backend_status_page():
     mqtt_badge = "🟢 Đã kết nối Broker" if mqtt_handler.connected else "🟡 Chưa kết nối MQTT"
     return f"""
     <!DOCTYPE html>
@@ -145,6 +152,7 @@ def dashboard():
             <h1>🌱 Tomato Irrigation — VPS MQTT Backend</h1>
             <div class="pill">{mqtt_badge} • WebSocket: {len(manager.active_connections)} client</div>
             <p style="font-size: 13px; color: #94a3b8;">Nhánh chạy song song MQTT + FastAPI WebSocket + Đồng bộ Cloudflare D1</p>
+            <a href="/">🖥️ Mở Giao diện Điều khiển (HMI 2.0)</a>
             <a href="/docs">📘 Mở API Swagger (/docs)</a>
             <a href="/docs/table">🗄 Xem cấu trúc CSDL (/docs/table)</a>
             <a href="/health">💓 Kiểm tra trạng thái (/health)</a>
@@ -152,6 +160,14 @@ def dashboard():
     </body>
     </html>
     """
+
+
+@app.get("/")
+def root():
+    index_file = STATIC_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(str(index_file))
+    return backend_status_page()
 
 
 @app.get("/docs/table", response_class=HTMLResponse)
