@@ -65,9 +65,9 @@ function LineChart({ points }: { points: { time: string; h2: number | null; h3: 
   </svg></div>;
 }
 
-export default function Dashboard({ userName, signOutPath }: { userName: string; signOutPath: string }) {
+export default function Dashboard({ userName, signOutPath, staticMode = false }: { userName: string; signOutPath: string; staticMode?: boolean }) {
   const [tab, setTab] = useState<"overview" | "config" | "events">("overview");
-  const [mode, setMode] = useState<"live" | "demo">("live");
+  const [mode, setMode] = useState<"live" | "demo">(staticMode ? "demo" : "live");
   const [device, setDevice] = useState("stm32_01");
   const [devices, setDevices] = useState<Device[]>([]);
   const [latest, setLatest] = useState<Sample | null>(null);
@@ -86,7 +86,7 @@ export default function Dashboard({ userName, signOutPath }: { userName: string;
     return body;
   }, []);
   const refresh = useCallback(async () => {
-    if (mode !== "live") return;
+    if (staticMode || mode !== "live") return;
     try {
       const [a, b, c, d, e] = await Promise.all([
         request<{devices:Device[]}>("admin/devices"), request<{telemetry:Sample|null}>(`admin/latest?device_id=${query}`),
@@ -96,7 +96,7 @@ export default function Dashboard({ userName, signOutPath }: { userName: string;
       setDevices(a.devices); setLatest(b.telemetry); setHistory(c.samples); setEvents(d.events);
       setConfig(e.config); setVersion(e.version); setError("");
     } catch (err) { setError(err instanceof Error ? err.message : "Không tải được dữ liệu"); }
-  }, [mode, query, request]);
+  }, [mode, query, request, staticMode]);
   useEffect(() => { refresh(); const timer = setInterval(refresh, 15000); return () => clearInterval(timer); }, [refresh]);
   const parsed = useMemo(() => parseSample(latest), [latest]);
   const rows = mode === "demo" ? demoRows : parsed?.rows ?? [];
@@ -140,8 +140,8 @@ export default function Dashboard({ userName, signOutPath }: { userName: string;
       <div className="sidebar-bottom"><span className="side-dot"/> STM32 + A7670C <small>API phiên bản 1</small></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div><span className="eyebrow">TRANG ĐIỀU KHIỂN</span><h1>{tab === "overview" ? "Tổng quan hệ thống" : tab === "events" ? "Nhật ký tưới" : "Cấu hình tưới"}</h1></div><div className="account"><span>{userName}</span><a href={signOutPath} target="_top">Đăng xuất</a></div></header>
-      <div className="toolbar"><div className="toolbar-left"><label className="device-select">Thiết bị <select value={device} onChange={e => setDevice(e.target.value)}><option value={device}>{device}</option>{devices.filter(d => d.id !== device).map(d => <option key={d.id} value={d.id}>{d.id}</option>)}</select></label><span className={`status-pill ${mode === "demo" ? "demo" : fresh ? "online" : "offline"}`}><i/>{mode === "demo" ? "Dữ liệu mẫu" : fresh ? "Đang trực tuyến" : "Chưa có thiết bị"}</span></div><div className="mode-switch"><button className={mode === "live" ? "chosen" : ""} onClick={() => setMode("live")}>Dữ liệu thực</button><button className={mode === "demo" ? "chosen" : ""} onClick={() => setMode("demo")}>Xem mẫu</button></div></div>
+      <header className="topbar"><div><span className="eyebrow">TRANG ĐIỀU KHIỂN</span><h1>{tab === "overview" ? "Tổng quan hệ thống" : tab === "events" ? "Nhật ký tưới" : "Cấu hình tưới"}</h1></div><div className="account"><span>{userName}</span><a href={signOutPath} target="_top">{staticMode ? "Mở Sites" : "Đăng xuất"}</a></div></header>
+      <div className="toolbar"><div className="toolbar-left"><label className="device-select">Thiết bị <select value={device} onChange={e => setDevice(e.target.value)}><option value={device}>{device}</option>{devices.filter(d => d.id !== device).map(d => <option key={d.id} value={d.id}>{d.id}</option>)}</select></label><span className={`status-pill ${mode === "demo" ? "demo" : fresh ? "online" : "offline"}`}><i/>{mode === "demo" ? "Dữ liệu mẫu" : fresh ? "Đang trực tuyến" : "Chưa có thiết bị"}</span></div><div className="mode-switch">{staticMode ? <a href="https://tuoi-ca-chua-3-hang.promisinghill1.chatgpt.site/">Mở dữ liệu thực</a> : <button className={mode === "live" ? "chosen" : ""} onClick={() => setMode("live")}>Dữ liệu thực</button>}<button className={mode === "demo" ? "chosen" : ""} onClick={() => setMode("demo")}>Xem mẫu</button></div></div>
       {mode === "demo" && <div className="notice demo-notice">Chế độ xem mẫu: các số liệu dưới đây được mô phỏng và không gửi lệnh đến thiết bị.</div>}
       {mode === "live" && !latest && <div className="notice">Chưa nhận telemetry từ STM32. Backend đã sẵn sàng; dùng “Xem mẫu” để xem bố cục trong lúc chưa lắp phần cứng.</div>}
       {error && <div className="notice error">Không tải được dữ liệu: {error}</div>}
