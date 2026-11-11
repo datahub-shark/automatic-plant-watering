@@ -19,6 +19,7 @@ import {
   Lock,
   LogIn,
   LogOut,
+  Map,
   Play,
   Power,
   RefreshCw,
@@ -38,6 +39,7 @@ import {
 import type { CommandItem, Config, Device, EventItem, Row, Sample } from "./hmi-types";
 import { ALARM_REGISTRY, defaultConfig } from "./hmi-types";
 import HydraulicPID from "./hmi-hydraulic-pid";
+import HmiGardenMap from "./hmi-garden-map";
 import HmiAlarms from "./hmi-alarms";
 import HmiGuide from "./hmi-guide";
 import HmiFuture from "./hmi-future";
@@ -78,7 +80,81 @@ function parseSample(s: Sample | null) {
   }
 }
 
-function LineChart({ points }: { points: { time: string; h2: number | null; h3: number | null }[] }) {
+// Đồ họa bồn nước SVG thích ứng theo phong cách ThingsBoard IoT
+function SvgWaterTank({ tankOk }: { tankOk: boolean | null }) {
+  const isOk = tankOk === true;
+  const isEmpty = tankOk === false;
+  const isWaiting = tankOk === null;
+
+  const waterHeight = isWaiting ? 45 : isEmpty ? 12 : 75; // percentage
+  const waterColor = isWaiting ? "#94a3b8" : isEmpty ? "#ef4444" : "#0284c7";
+  const waterLight = isWaiting ? "#cbd5e1" : isEmpty ? "#fca5a5" : "#38bdf8";
+
+  return (
+    <svg width="42" height="50" viewBox="0 0 42 50" className="shrink-0 overflow-visible" role="img" aria-label="Mực nước bồn">
+      <defs>
+        <clipPath id="tank-body-clip">
+          <rect x="5" y="7" width="32" height="38" rx="4" />
+        </clipPath>
+      </defs>
+      {/* Nắp bồn */}
+      <rect x="13" y="2" width="16" height="4" rx="2" fill="#64748b" />
+      {/* Thân bồn chứa hình trụ */}
+      <rect x="4" y="6" width="34" height="40" rx="5" fill="#f8fafc" stroke="#94a3b8" strokeWidth="2" />
+      {/* Vạch đo dung tích bồn */}
+      <line x1="8" y1="14" x2="12" y2="14" stroke="#cbd5e1" strokeWidth="1" />
+      <line x1="8" y1="23" x2="15" y2="23" stroke="#cbd5e1" strokeWidth="1.5" />
+      <line x1="8" y1="32" x2="12" y2="32" stroke="#cbd5e1" strokeWidth="1" />
+      <line x1="8" y1="40" x2="15" y2="40" stroke="#cbd5e1" strokeWidth="1.5" />
+      {/* Mực nước dâng */}
+      <g clipPath="url(#tank-body-clip)">
+        <rect
+          x="5"
+          y={46 - (waterHeight * 38) / 100}
+          width="32"
+          height={(waterHeight * 38) / 100}
+          fill={waterColor}
+          opacity="0.85"
+        />
+        {/* Sóng nước */}
+        <path
+          d={`M 5 ${46 - (waterHeight * 38) / 100} Q 13 ${44 - (waterHeight * 38) / 100} 21 ${46 - (waterHeight * 38) / 100} T 37 ${46 - (waterHeight * 38) / 100} L 37 47 L 5 47 Z`}
+          fill={waterLight}
+          opacity="0.6"
+        />
+      </g>
+      {/* Phao cảm biến chống cạn */}
+      <circle
+        cx="29"
+        cy={isWaiting ? 25 : isEmpty ? 40 : 15}
+        r="3.5"
+        fill={isWaiting ? "#94a3b8" : isEmpty ? "#dc2626" : "#10b981"}
+        stroke="#ffffff"
+        strokeWidth="1.2"
+      />
+      <line
+        x1="29"
+        y1="6"
+        x2="29"
+        y2={isWaiting ? 25 : isEmpty ? 40 : 15}
+        stroke="#64748b"
+        strokeWidth="1"
+        strokeDasharray="1.5 1.5"
+      />
+    </svg>
+  );
+}
+
+function LineChart({
+  points,
+  lowThreshold = 35,
+  highThreshold = 55,
+}: {
+  points: { time: string; h2: number | null; h3: number | null }[];
+  lowThreshold?: number;
+  highThreshold?: number;
+}) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const width = 740, height = 220, left = 40, right = 16, top = 20, bottom = 30;
   const x = (i: number) => left + (i * (width - left - right)) / Math.max(points.length - 1, 1);
   const y = (v: number) => top + ((100 - v) * (height - top - bottom)) / 100;
@@ -92,9 +168,36 @@ function LineChart({ points }: { points: { time: string; h2: number | null; h3: 
       .filter(Boolean)
       .join(" ");
 
+  const hoverPoint = hoverIdx !== null && points[hoverIdx] ? points[hoverIdx] : null;
+
   return (
-    <div className="w-full overflow-hidden">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" role="img" aria-label="Biểu đồ độ ẩm đất">
+    <div className="w-full overflow-hidden select-none">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-auto cursor-crosshair"
+        role="img"
+        aria-label="Biểu đồ độ ẩm đất"
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const mouseX = ((e.clientX - rect.left) / rect.width) * width;
+          if (mouseX >= left && mouseX <= width - right && points.length > 1) {
+            const ratio = (mouseX - left) / (width - left - right);
+            const idx = Math.round(ratio * (points.length - 1));
+            setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)));
+          }
+        }}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {/* Vùng tối ưu (Optimal moisture zone) */}
+        <rect
+          x={left}
+          y={y(highThreshold)}
+          width={width - left - right}
+          height={Math.max(0, y(lowThreshold) - y(highThreshold))}
+          fill="#10b981"
+          opacity="0.05"
+        />
+
         {[25, 50, 75].map((v) => (
           <g key={v}>
             <line x1={left} x2={width - right} y1={y(v)} y2={y(v)} stroke="#e2e8f0" strokeDasharray="4 5" />
@@ -103,12 +206,42 @@ function LineChart({ points }: { points: { time: string; h2: number | null; h3: 
             </text>
           </g>
         ))}
-        {/* Đường ngưỡng cảnh báo Low/High */}
-        <line x1={left} x2={width - right} y1={y(35)} y2={y(35)} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3 3" />
-        <line x1={left} x2={width - right} y1={y(55)} y2={y(55)} stroke="#10b981" strokeWidth="1" strokeDasharray="3 3" />
 
-        <path d={path("h2")} fill="none" stroke="#d97706" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-        <path d={path("h3")} fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Đường ngưỡng cảnh báo Low/High */}
+        <line x1={left} x2={width - right} y1={y(lowThreshold)} y2={y(lowThreshold)} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3 3" />
+        <text x={width - right} y={y(lowThreshold) - 3} textAnchor="end" fontSize="10" fill="#d97706" fontWeight="bold">
+          Bật tưới (&lt;{lowThreshold}%)
+        </text>
+
+        <line x1={left} x2={width - right} y1={y(highThreshold)} y2={y(highThreshold)} stroke="#10b981" strokeWidth="1" strokeDasharray="3 3" />
+        <text x={width - right} y={y(highThreshold) - 3} textAnchor="end" fontSize="10" fill="#059669" fontWeight="bold">
+          Đủ ẩm (&gt;{highThreshold}%)
+        </text>
+
+        <path d={path("h2")} fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={path("h3")} fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Cột mốc hover tương tác */}
+        {hoverIdx !== null && hoverPoint && (
+          <g>
+            <line
+              x1={x(hoverIdx)}
+              x2={x(hoverIdx)}
+              y1={top}
+              y2={height - bottom}
+              stroke="#64748b"
+              strokeWidth="1.5"
+              strokeDasharray="2 2"
+            />
+            {hoverPoint.h2 != null && (
+              <circle cx={x(hoverIdx)} cy={y(hoverPoint.h2)} r="4.5" fill="#d97706" stroke="#ffffff" strokeWidth="2" />
+            )}
+            {hoverPoint.h3 != null && (
+              <circle cx={x(hoverIdx)} cy={y(hoverPoint.h3)} r="4.5" fill="#059669" stroke="#ffffff" strokeWidth="2" />
+            )}
+          </g>
+        )}
+
         {points.length > 0 && (
           <>
             <text x={left} y={height - 8} fontSize="11" fill="#64748b" fontWeight="600">
@@ -120,6 +253,22 @@ function LineChart({ points }: { points: { time: string; h2: number | null; h3: 
           </>
         )}
       </svg>
+
+      {/* Tooltip hiển thị số liệu khi di chuột */}
+      {hoverPoint && hoverIdx !== null && (
+        <div className="mt-2 py-1.5 px-3 bg-slate-900 text-white rounded-lg text-xs flex flex-wrap items-center justify-between gap-3 shadow-md">
+          <span className="font-semibold text-slate-300">Thời điểm: <strong className="text-white">{hoverPoint.time}</strong></span>
+          <div className="flex items-center gap-3">
+            <span className="text-amber-400 font-bold">Hàng 2: {hoverPoint.h2 != null ? `${hoverPoint.h2.toFixed(1)}%` : "—"}</span>
+            <span className="text-emerald-400 font-bold">Hàng 3: {hoverPoint.h3 != null ? `${hoverPoint.h3.toFixed(1)}%` : "—"}</span>
+            {hoverPoint.h2 != null && hoverPoint.h3 != null && (
+              <span className="text-sky-300 font-semibold text-[11px]">
+                Chênh lệch Δ: {(hoverPoint.h3 - hoverPoint.h2).toFixed(1)}%
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -133,7 +282,7 @@ export default function Dashboard({
   signOutPath?: string;
   staticMode?: boolean;
 }) {
-  const [tab, setTab] = useState<"overview" | "pid" | "alarms" | "config" | "guide" | "future">("overview");
+  const [tab, setTab] = useState<"overview" | "map2d" | "pid" | "alarms" | "config" | "guide" | "future">("overview");
   const [mode, setMode] = useState<"live" | "demo">("demo");
   const [device, setDevice] = useState("stm32_01");
   const [devices, setDevices] = useState<Device[]>([]);
@@ -821,6 +970,18 @@ export default function Dashboard({
             </button>
 
             <button
+              onClick={() => setTab("map2d")}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                tab === "map2d"
+                  ? "bg-emerald-700 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              }`}
+            >
+              <Map className="w-4 h-4" />
+              <span>Bản đồ 2D Vườn & Sự cố</span>
+            </button>
+
+            <button
               onClick={() => setTab("pid")}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
                 tab === "pid"
@@ -1479,7 +1640,30 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* ===================== TAB 2: SƠ ĐỒ THỦY LỰC P&ID ===================== */}
+        {/* ===================== TAB 2: BẢN ĐỒ 2D VƯỜN & SỰ CỐ ===================== */}
+        {tab === "map2d" && (
+          <HmiGardenMap
+            rows={rows}
+            tankOk={tankOk}
+            pumpOn={pumpOn}
+            soilMoisture={soilMoisture}
+            tempC={temp}
+            rhPct={rh}
+            vpdKpa={vpd}
+            events={events}
+            onTriggerRow={(id) => {
+              const isValveActive = rows.find((r) => r.id === id)?.valve;
+              if (isValveActive) {
+                promptStopRow(id);
+              } else {
+                promptStartRow(id);
+              }
+            }}
+            canOperate={mode === "demo" || !!adminToken}
+          />
+        )}
+
+        {/* ===================== TAB 3: SƠ ĐỒ THỦY LỰC P&ID ===================== */}
         {tab === "pid" && (
           <HydraulicPID
             rows={rows}
