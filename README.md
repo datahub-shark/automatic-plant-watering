@@ -1,6 +1,10 @@
 # Backend tưới cà chua ba hàng
 
-Backend HTTPS trên Sites/Cloudflare Worker, dữ liệu lưu trong D1. Chưa phụ thuộc vào bo STM32 hoặc modem A7670C; có thể kiểm tra toàn bộ hợp đồng API trước khi đấu phần cứng. Site mặc định riêng tư.
+Webapp và backend HTTPS trên Sites/Cloudflare Worker, dữ liệu lưu trong D1. Chưa phụ thuộc vào bo STM32 hoặc modem A7670C; có thể kiểm tra hợp đồng API và bố cục bằng dữ liệu mẫu trước khi đấu phần cứng. Site mặc định riêng tư.
+
+## Giao diện
+
+Trang `/` có tổng quan ba hàng tưới, biểu đồ độ ẩm, nhật ký sự kiện và biểu mẫu cấu hình. Người quản trị đăng nhập bằng quyền Sites. Chế độ **Dữ liệu thực** chỉ hiển thị bản tin từ backend. Chế độ **Xem mẫu** có nhãn rõ ràng, không ghi dữ liệu hay gửi lệnh. Nút tưới thủ công chỉ bật khi thiết bị đã gửi telemetry trong vòng hai phút và bồn báo còn nước.
 
 ## Xác thực
 
@@ -34,7 +38,7 @@ Backend HTTPS trên Sites/Cloudflare Worker, dữ liệu lưu trong D1. Chưa ph
 
 `GET /api/v1/commands?device_id=stm32_01` trả tối đa 16 lệnh pending. Thiết bị xử lý lệnh rồi gọi `POST /api/v1/commands/ack?device_id=stm32_01` với `{"id":123}`. Lệnh có thể được trả lại cho đến khi nhận ACK; firmware cần nhớ ID đã thực hiện để không tưới lặp.
 
-Endpoint quản trị: `PUT /api/v1/admin/config?device_id=...` (toàn bộ đối tượng config), `POST /api/v1/admin/commands?device_id=...` với `{"action":"start","row":2}` (`stop`, `clear_fault`), `GET /api/v1/admin/latest?device_id=...`, `GET /api/v1/admin/events?device_id=...`.
+Endpoint quản trị: `PUT /api/v1/admin/config?device_id=...` (toàn bộ đối tượng config), `POST /api/v1/admin/commands?device_id=...` với `{"action":"start","row":2}` (`stop`, `clear_fault`), `GET /api/v1/admin/devices`, `GET /api/v1/admin/latest?device_id=...`, `GET /api/v1/admin/history?device_id=...`, `GET /api/v1/admin/events?device_id=...`.
 
 ## Phát triển cục bộ
 

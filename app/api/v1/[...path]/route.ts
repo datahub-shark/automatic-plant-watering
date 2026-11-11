@@ -46,6 +46,12 @@ async function route(req: Request) {
   if (path === "health" && method === "GET") return json({ status: "ok", service: "tomato-irrigation-api", version: 1 });
   const id = url.searchParams.get("device_id");
 
+  if (path === "admin/devices" && method === "GET") {
+    if (!admin(req)) return bad("owner sign-in required", 403);
+    const result = await db().prepare("SELECT id,created_at,last_seen_at,last_seq FROM devices ORDER BY last_seen_at DESC LIMIT 100").all();
+    return json({ devices: result.results });
+  }
+
   if (path === "telemetry" && method === "POST") {
     const x = await bodyOf(req);
     if (!x || !deviceIdOk(x.device_id) || !Number.isSafeInteger(x.seq) || Number(x.seq) < 0 ||
@@ -118,6 +124,10 @@ async function route(req: Request) {
   if (path === "admin/events" && method === "GET") {
     const item = await db().prepare("SELECT * FROM events WHERE device_id=? ORDER BY id DESC LIMIT 100").bind(id).all();
     return json({ device_id: id, events: item.results });
+  }
+  if (path === "admin/history" && method === "GET") {
+    const item = await db().prepare("SELECT recorded_at,received_at,soil_json,temperature_c,rh_pct,vpd_kpa,rows_json,tank_ok,pump_on FROM telemetry WHERE device_id=? ORDER BY id DESC LIMIT 120").bind(id).all();
+    return json({ device_id: id, samples: item.results.reverse() });
   }
   return bad("route not found", 404);
 }
