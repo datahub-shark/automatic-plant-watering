@@ -2,6 +2,8 @@
 
 Worker này dùng D1 `automatic-plant-watering` trong tài khoản Cloudflare của chủ dự án. GitHub Pages hiện chỉ hiển thị dữ liệu mẫu; backend Sites cũ vẫn là môi trường riêng, không tự chuyển dữ liệu sang D1 mới.
 
+Ngày 11/11/2026 đã nạp schema và triển khai Worker tại `https://automatic-plant-watering-api.datahub-shark.workers.dev`. Ba secret xác thực chưa được tạo nên các endpoint dữ liệu sẽ từ chối yêu cầu cho đến khi chủ tài khoản thiết lập chúng.
+
 ## Triển khai từ thư mục `backend-site`
 
 1. `npx wrangler login` trên máy của chủ tài khoản Cloudflare. Không gửi token đăng nhập cho người khác.
